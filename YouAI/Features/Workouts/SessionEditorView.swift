@@ -11,8 +11,6 @@ struct SessionEditorView: View {
     @Environment(HealthKitManager.self) private var health
     @Environment(\.dismiss) private var dismiss
 
-    @Query(sort: \Exercise.name) private var library: [Exercise]
-
     @State private var name = ""
     @State private var date = Date()
     @State private var notes = ""
@@ -107,7 +105,7 @@ struct SessionEditorView: View {
             }
         }
         .sheet(isPresented: $showingPicker) {
-            ExercisePickerSheet(library: library) { chosen in
+            ExercisePickerSheet { chosen in
                 draftExercises.append(DraftExercise(name: chosen))
             }
         }
@@ -266,51 +264,59 @@ struct SetRow: View {
 // MARK: - Picker
 
 struct ExercisePickerSheet: View {
-    let library: [Exercise]
     var onPick: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Query(filter: #Predicate<Exercise> { $0.isCustom }, sort: \Exercise.name) private var custom: [Exercise]
+
     @State private var search = ""
+    @State private var group: MuscleGroup = .all
 
-    private var grouped: [(group: String, exercises: [Exercise])] {
-        let filtered = search.isEmpty
-            ? library
-            : library.filter { $0.name.localizedCaseInsensitiveContains(search) }
-
-        return Dictionary(grouping: filtered, by: \.muscleGroup)
-            .map { (group: $0.key, exercises: $0.value.sorted { $0.name < $1.name }) }
-            .sorted { $0.group < $1.group }
+    private var entries: [LibraryEntry] {
+        ExerciseCatalog.entries(matching: search, group: group, custom: custom)
     }
 
     private var trimmedSearch: String {
         search.trimmingCharacters(in: .whitespaces)
     }
 
+    private var canUseTypedName: Bool {
+        guard !trimmedSearch.isEmpty else { return false }
+        let target = trimmedSearch.lowercased()
+        if ExerciseCatalog.contains(name: target) { return false }
+        return !custom.contains { $0.name.lowercased() == target }
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                // Let the user log something that isn't in the library yet without
-                // a detour through the library screen.
-                if !trimmedSearch.isEmpty && !library.contains(where: { $0.name.lowercased() == trimmedSearch.lowercased() }) {
+            VStack(spacing: 0) {
+                MuscleGroupBar(selection: $group)
+                List {
+                    if canUseTypedName {
+                        Section {
+                            Button {
+                                onPick(trimmedSearch)
+                                dismiss()
+                            } label: {
+                                Label("Use \"\(trimmedSearch)\"", systemImage: "plus")
+                            }
+                        }
+                    }
+
                     Section {
-                        Button {
-                            onPick(trimmedSearch)
-                            dismiss()
-                        } label: {
-                            Label("Use \"\(trimmedSearch)\"", systemImage: "plus")
+                        ForEach(entries) { entry in
+                            Button {
+                                onPick(entry.name)
+                                dismiss()
+                            } label: {
+                                ExerciseRow(entry: entry)
+                            }
                         }
                     }
                 }
-
-                ForEach(grouped, id: \.group) { section in
-                    Section(section.group) {
-                        ForEach(section.exercises) { exercise in
-                            Button(exercise.name) {
-                                onPick(exercise.name)
-                                dismiss()
-                            }
-                            .foregroundStyle(.primary)
-                        }
+                .overlay {
+                    if entries.isEmpty && !canUseTypedName {
+                        ContentUnavailableView.search(text: search)
                     }
                 }
             }

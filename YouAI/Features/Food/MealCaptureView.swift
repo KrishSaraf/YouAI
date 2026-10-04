@@ -5,7 +5,7 @@ import PhotosUI
 /// Entry point for logging a meal: photograph a plate, pick a photo, or skip the
 /// photo entirely and type it in.
 struct MealCaptureView: View {
-    @Environment(AppSettings.self) private var settings
+    @Environment(AccountStore.self) private var account
     @Environment(\.dismiss) private var dismiss
 
     @State private var showingCamera = false
@@ -41,26 +41,32 @@ struct MealCaptureView: View {
                 PhotosPicker(selection: $pickerItem, matching: .images) {
                     Label("Choose a photo", systemImage: "photo.on.rectangle")
                 }
-            } footer: {
-                if !settings.hasAPIKey {
-                    Text("Add an NVIDIA API key in Settings to estimate meals from a photo.")
-                }
             }
 
             if image != nil {
-                Section {
-                    Button {
-                        estimateMeal()
-                    } label: {
-                        HStack {
-                            Label("Estimate from photo", systemImage: "sparkles")
-                            if isEstimating {
-                                Spacer()
-                                ProgressView()
+                if account.isSignedIn {
+                    Section {
+                        Button {
+                            estimateMeal()
+                        } label: {
+                            HStack {
+                                Label("Estimate from photo", systemImage: "sparkles")
+                                if isEstimating {
+                                    Spacer()
+                                    ProgressView()
+                                }
                             }
                         }
+                        .disabled(isEstimating)
+                    } footer: {
+                        Text("The photo is sent for the estimate and isn't kept.")
                     }
-                    .disabled(isEstimating || !settings.hasAPIKey)
+                } else {
+                    Section {
+                        SignInWithAppleButtonRow()
+                    } footer: {
+                        Text("Sign in to estimate this photo. You can still log the meal yourself.")
+                    }
                 }
             }
 
@@ -132,7 +138,7 @@ struct MealCaptureView: View {
 
         Task {
             do {
-                estimate = try await MealEstimator(client: settings.client).estimate(from: image)
+                estimate = try await MealEstimator(client: NIMClient(sessionToken: account.sessionToken)).estimate(from: image)
             } catch {
                 errorMessage = error.localizedDescription
             }

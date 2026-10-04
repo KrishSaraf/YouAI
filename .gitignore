@@ -22,7 +22,9 @@ Package.resolved
 # macOS
 .DS_Store
 
-# Secrets — the NVIDIA API key lives in the iOS Keychain, never on disk,
-# but keep this here so no local override file can slip in.
+# Secrets — the NVIDIA API key lives in the server environment, never in this repo.
 *.env
+.env.*
+!.env.example
 Secrets.swift
+node_modules/

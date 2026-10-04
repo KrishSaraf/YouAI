@@ -5,7 +5,7 @@ import PhotosUI
 /// Photograph a machine, get back what it is and what you can do on it, then
 /// carry the chosen exercises straight into a new session.
 struct EquipmentCaptureView: View {
-    @Environment(AppSettings.self) private var settings
+    @Environment(AccountStore.self) private var account
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
@@ -42,26 +42,32 @@ struct EquipmentCaptureView: View {
                 PhotosPicker(selection: $pickerItem, matching: .images) {
                     Label("Choose a photo", systemImage: "photo.on.rectangle")
                 }
-            } footer: {
-                if !settings.hasAPIKey {
-                    Text("Add an NVIDIA API key in Settings to identify equipment.")
-                }
             }
 
             if image != nil && result == nil {
-                Section {
-                    Button {
-                        identify()
-                    } label: {
-                        HStack {
-                            Label("Identify equipment", systemImage: "sparkles")
-                            if isIdentifying {
-                                Spacer()
-                                ProgressView()
+                if account.isSignedIn {
+                    Section {
+                        Button {
+                            identify()
+                        } label: {
+                            HStack {
+                                Label("Identify equipment", systemImage: "sparkles")
+                                if isIdentifying {
+                                    Spacer()
+                                    ProgressView()
+                                }
                             }
                         }
+                        .disabled(isIdentifying)
+                    } footer: {
+                        Text("The photo is sent so the equipment can be named, and isn't kept.")
                     }
-                    .disabled(isIdentifying || !settings.hasAPIKey)
+                } else {
+                    Section {
+                        SignInWithAppleButtonRow()
+                    } footer: {
+                        Text("Sign in to identify this photo.")
+                    }
                 }
             }
 
@@ -167,7 +173,7 @@ struct EquipmentCaptureView: View {
 
         Task {
             do {
-                let identification = try await EquipmentIdentifier(client: settings.client).identify(from: image)
+                let identification = try await EquipmentIdentifier(client: NIMClient(sessionToken: account.sessionToken)).identify(from: image)
                 result = identification
                 // Preselect the most likely exercise so one tap gets you moving.
                 selected = Set(identification.suggestedExercises.prefix(1))
@@ -184,6 +190,7 @@ struct EquipmentCaptureView: View {
         let group = result?.equipmentName ?? "Other"
         let existing = (try? context.fetch(FetchDescriptor<Exercise>())) ?? []
         let names = Set(existing.map { $0.name.lowercased() })
+            .union(ExerciseCatalog.exercises.map { $0.name.lowercased() })
 
         for exercise in selected where !names.contains(exercise.lowercased()) {
             context.insert(Exercise(name: exercise, muscleGroup: group, isCustom: true))

@@ -1,0 +1,14 @@
+{
+  "name": "youai",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@netlify/functions": "^4.2.0"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^11.1.3",
+    "jose": "^6.2.12"
+  }
+}

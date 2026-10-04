@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(HealthKitManager.self) private var health
+    @Environment(AccountStore.self) private var account
 
     var body: some View {
         TabView {
@@ -17,6 +18,7 @@ struct RootView: View {
         .task {
             await health.requestAuthorization()
             await health.refresh()
+            await account.refreshCredentialState()
         }
     }
 }

@@ -36,5 +36,7 @@
 	<string>You AI uses the camera to photograph meals and gym equipment.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>You AI lets you pick an existing photo of a meal instead of taking a new one.</string>
+	<key>APIBaseURL</key>
+	<string>https://YOUR-SITE.netlify.app</string>
 </dict>
 </plist>

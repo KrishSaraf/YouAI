@@ -1,10 +1,8 @@
 import Foundation
 import Security
 
-/// Minimal Keychain wrapper for the NVIDIA API key. The key is never written to
-/// disk in plain text and never committed to the repo.
+/// Keychain storage for the sign-in session. The value stays on this device.
 enum KeychainStore {
-
     private static let service = "com.ht.YouAI"
 
     static func set(_ value: String?, for account: String) {
@@ -21,11 +19,9 @@ enum KeychainStore {
 
         let attributes: [String: Any] = [
             kSecValueData as String: Data(value.utf8),
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
 
-        // Update if it already exists, otherwise add — SecItemAdd fails with
-        // errSecDuplicateItem rather than overwriting.
         if SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess {
             SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         } else {

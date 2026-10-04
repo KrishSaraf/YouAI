@@ -20,6 +20,11 @@ targets:
     platform: iOS
     sources:
       - path: YouAI
+        excludes:
+          - ExerciseDB/images/**
+      - path: YouAI/ExerciseDB/images
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ht.YouAI
@@ -33,10 +38,12 @@ targets:
     entitlements:
       path: YouAI/YouAI.entitlements
       properties:
+        com.apple.developer.applesignin:
+          - Default
         com.apple.developer.healthkit: true
-        com.apple.developer.healthkit-access: []
     dependencies:
       - sdk: HealthKit.framework
+      - sdk: AuthenticationServices.framework
 
 schemes:
   YouAI:

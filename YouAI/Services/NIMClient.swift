@@ -1,7 +1,8 @@
 import Foundation
 
 enum NIMError: LocalizedError {
-    case missingAPIKey
+    case notConfigured
+    case signedOut
     case imageTooLarge
     case http(status: Int, body: String)
     case emptyResponse
@@ -9,163 +10,51 @@ enum NIMError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingAPIKey:
-            "No NVIDIA API key set. Add one in Settings."
+        case .notConfigured:
+            "Photo estimates aren't available right now."
+        case .signedOut:
+            "Sign in to estimate from a photo."
         case .imageTooLarge:
             "That photo couldn't be compressed small enough to send."
-        case .http(let status, let body):
-            "NVIDIA API returned \(status): \(body.prefix(300))"
+        case .http(_, let body):
+            userMessage(from: body)
         case .emptyResponse:
-            "The model returned an empty response."
-        case .badJSON(let detail):
-            "Couldn't read the model's answer: \(detail)"
+            "Couldn't read that photo. Try again."
+        case .badJSON:
+            "Couldn't read that photo. Try again."
         }
     }
 }
 
-/// How the image bytes are attached to the request.
-///
-/// NVIDIA's hosted VLM endpoints are inconsistent here: some accept the standard
-/// OpenAI `image_url` content part, while others require the image inlined into
-/// the message *text* as an HTML `<img>` tag. Which one works depends on the
-/// model, so it's a setting rather than a hardcoded choice, and
-/// `NIMClient.probeEncoding` figures it out empirically.
-enum NIMImageEncoding: String, CaseIterable, Identifiable, Codable {
-    case openAIImageURL
-    case inlineHTMLTag
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .openAIImageURL: "OpenAI image_url"
-        case .inlineHTMLTag: "Inline <img> tag"
-        }
-    }
-}
-
-/// Client for NVIDIA NIM's OpenAI-compatible chat completions endpoint.
+/// Talks to this app's server, which holds the NVIDIA key and calls the model.
 struct NIMClient {
-
-    static let defaultBaseURL = "https://integrate.api.nvidia.com/v1"
-    static let keychainAccount = "nvidia-api-key"
-
-    var baseURL: String = defaultBaseURL
-    var model: String
-    var encoding: NIMImageEncoding
-    var apiKey: String?
+    var sessionToken: String?
 
     private var session: URLSession {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 90
+        config.timeoutIntervalForRequest = 55
         return URLSession(configuration: config)
     }
 
-    // MARK: - Requests
+    /// Asks the server to run one of the built-in photo tasks and returns the
+    /// assistant's text. The server owns the prompt, the model, and the key.
+    func complete(task: String, image: ImagePreparer.Prepared) async throws -> String {
+        guard let url = APIConfig.endpoint("api/vision") else { throw NIMError.notConfigured }
+        guard let sessionToken, !sessionToken.isEmpty else { throw NIMError.signedOut }
 
-    /// Sends a prompt, optionally with one image, and returns the assistant's text.
-    ///
-    /// `jsonSchema`, when supplied, is passed as `response_format` for guided
-    /// decoding. Not every NIM model supports it, so callers must still parse
-    /// defensively — see `JSONExtractor`.
-    func complete(
-        prompt: String,
-        image: ImagePreparer.Prepared? = nil,
-        jsonSchema: [String: Any]? = nil,
-        maxTokens: Int = 700,
-        temperature: Double = 0.2
-    ) async throws -> String {
-        guard let apiKey, !apiKey.isEmpty else { throw NIMError.missingAPIKey }
-
-        var body: [String: Any] = [
-            "model": model,
-            "messages": [messagePayload(prompt: prompt, image: image)],
-            "max_tokens": maxTokens,
-            "temperature": temperature,
-            "stream": false,
+        let body: [String: Any] = [
+            "task": task,
+            "image_data_url": image.dataURL,
         ]
 
-        if let jsonSchema {
-            body["response_format"] = [
-                "type": "json_schema",
-                "json_schema": ["name": "response", "strict": true, "schema": jsonSchema],
-            ]
-        }
-
-        let data = try await send(path: "chat/completions", body: body, apiKey: apiKey)
+        let data = try await send(url: url, body: body, sessionToken: sessionToken)
         return try firstMessageContent(from: data)
     }
 
-    /// Lists the models this key can actually reach, so the app never hardcodes a
-    /// model id that has since been retired from the catalog.
-    func availableModels() async throws -> [String] {
-        guard let apiKey, !apiKey.isEmpty else { throw NIMError.missingAPIKey }
-
-        var request = URLRequest(url: try url(for: "models"))
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await session.data(for: request)
-        try check(response, data)
-
-        guard
-            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let list = root["data"] as? [[String: Any]]
-        else { throw NIMError.badJSON("model list wasn't in the expected shape") }
-
-        return list.compactMap { $0["id"] as? String }.sorted()
-    }
-
-    /// Tries both image encodings against the configured model with a tiny image
-    /// and returns whichever one the endpoint accepts.
-    func probeEncoding(using image: ImagePreparer.Prepared) async -> NIMImageEncoding? {
-        for candidate in NIMImageEncoding.allCases {
-            var probe = self
-            probe.encoding = candidate
-            if let _ = try? await probe.complete(prompt: "Reply with the single word OK.", image: image, maxTokens: 8) {
-                return candidate
-            }
-        }
-        return nil
-    }
-
-    // MARK: - Payload shaping
-
-    private func messagePayload(prompt: String, image: ImagePreparer.Prepared?) -> [String: Any] {
-        guard let image else {
-            return ["role": "user", "content": prompt]
-        }
-
-        switch encoding {
-        case .openAIImageURL:
-            return [
-                "role": "user",
-                "content": [
-                    ["type": "text", "text": prompt],
-                    ["type": "image_url", "image_url": ["url": image.dataURL]],
-                ],
-            ]
-        case .inlineHTMLTag:
-            return [
-                "role": "user",
-                "content": "\(prompt) <img src=\"\(image.dataURL)\" />",
-            ]
-        }
-    }
-
-    // MARK: - Transport
-
-    private func url(for path: String) throws -> URL {
-        guard let url = URL(string: "\(baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/\(path)") else {
-            throw NIMError.badJSON("invalid base URL")
-        }
-        return url
-    }
-
-    private func send(path: String, body: [String: Any], apiKey: String) async throws -> Data {
-        var request = URLRequest(url: try url(for: path))
+    private func send(url: URL, body: [String: Any], sessionToken: String) async throws -> Data {
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(sessionToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -192,8 +81,6 @@ struct NIMClient {
             let message = choices.first?["message"] as? [String: Any]
         else { throw NIMError.badJSON("no choices in response") }
 
-        // Content is usually a string, but some NIM models return the OpenAI
-        // content-parts array even on output.
         if let text = message["content"] as? String {
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw NIMError.emptyResponse
@@ -209,4 +96,14 @@ struct NIMClient {
 
         throw NIMError.emptyResponse
     }
+}
+
+private func userMessage(from body: String) -> String {
+    guard
+        let data = body.data(using: .utf8),
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let error = json["error"] as? String,
+        !error.isEmpty
+    else { return "Couldn't read that photo. Try again." }
+    return error
 }

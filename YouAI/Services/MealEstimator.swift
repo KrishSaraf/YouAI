@@ -48,44 +48,10 @@ struct MealEstimator {
 
     let client: NIMClient
 
-    private static let schema: [String: Any] = [
-        "type": "object",
-        "properties": [
-            "name": ["type": "string"],
-            "meal_type": ["type": "string", "enum": MealType.allCases.map(\.rawValue)],
-            "calories": ["type": "number"],
-            "protein_g": ["type": "number"],
-            "carbs_g": ["type": "number"],
-            "fat_g": ["type": "number"],
-            "note": ["type": "string"],
-        ],
-        "required": ["name", "meal_type", "calories", "protein_g", "carbs_g", "fat_g"],
-        "additionalProperties": false,
-    ]
-
-    private static let prompt = """
-    You are a nutrition estimator. Look at this photo of a meal and estimate its \
-    contents for a single serving as shown.
-
-    Reply with only a JSON object, no prose and no code fences, with these keys:
-      "name": a short dish name, at most 5 words
-      "meal_type": one of breakfast, lunch, dinner, snack
-      "calories": total kilocalories, a number
-      "protein_g", "carbs_g", "fat_g": grams, numbers
-      "note": one short sentence on what you assumed about portion size
-
-    If the photo does not contain food, set "name" to "No food detected" and all \
-    numbers to 0.
-    """
-
     func estimate(from image: UIImage, at date: Date = Date()) async throws -> MealEstimate {
         guard let prepared = ImagePreparer.prepare(image) else { throw NIMError.imageTooLarge }
 
-        let text = try await client.complete(
-            prompt: Self.prompt,
-            image: prepared,
-            jsonSchema: Self.schema
-        )
+        let text = try await client.complete(task: "meal", image: prepared)
 
         guard let json = JSONExtractor.object(from: text) else {
             throw NIMError.badJSON("the model didn't return JSON. It said: \(text.prefix(200))")

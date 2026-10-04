@@ -6,6 +6,7 @@ struct YouAIApp: App {
     private let modelContainer: ModelContainer
     @State private var health = HealthKitManager()
     @State private var settings = AppSettings()
+    @State private var account = AccountStore()
 
     init() {
         do {
@@ -23,6 +24,7 @@ struct YouAIApp: App {
             RootView()
                 .environment(health)
                 .environment(settings)
+                .environment(account)
         }
         .modelContainer(modelContainer)
     }
