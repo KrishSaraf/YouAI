@@ -36,6 +36,10 @@
 	<string>Lean Lah! uses the camera to photograph meals and gym equipment.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Lean Lah! lets you pick an existing photo of a meal instead of taking a new one.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lean Lah! uses the microphone so you can log a meal, workout, or habit by speaking.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Lean Lah! turns what you say into a log you can confirm.</string>
 	<key>APIBaseURL</key>
 	<string>https://leanlah.netlify.app</string>
 	<key>SupabaseURL</key>

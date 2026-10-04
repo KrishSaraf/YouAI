@@ -47,6 +47,7 @@ targets:
         com.apple.developer.healthkit: true
     dependencies:
       - sdk: HealthKit.framework
+      - sdk: Speech.framework
       - sdk: AuthenticationServices.framework
       - package: Supabase
 

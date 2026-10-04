@@ -15,6 +15,7 @@ struct TodayView: View {
     @State private var showingWorkoutEditor = false
     @State private var showingMealLogger = false
     @State private var showingNewHabit = false
+    @State private var showingVoice = false
 
     private var todaysMeals: [Meal] {
         allMeals.filter { Calendar.current.isDateInToday($0.date) }
@@ -26,6 +27,7 @@ struct TodayView: View {
                 VStack(spacing: 20) {
                     ringsCard
                     weightCard
+                    voiceButton
                     quickLogButtons
                     habitsSection
                     mealsSection
@@ -47,6 +49,9 @@ struct TodayView: View {
             }
             .sheet(isPresented: $showingNewHabit) {
                 NewHabitSheet()
+            }
+            .sheet(isPresented: $showingVoice) {
+                VoiceLogView()
             }
         }
     }
@@ -110,6 +115,19 @@ struct TodayView: View {
         }
         .padding(16)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var voiceButton: some View {
+        Button {
+            showingVoice = true
+        } label: {
+            Label("Speak a log", systemImage: "mic.fill")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.primary)
     }
 
     // MARK: - Quick log

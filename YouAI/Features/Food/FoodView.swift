@@ -8,6 +8,7 @@ struct FoodView: View {
     @Query(sort: \Meal.date, order: .reverse) private var meals: [Meal]
 
     @State private var showingCapture = false
+    @State private var showingVoice = false
     @State private var editing: Meal?
 
     private let calendar = Calendar.current
@@ -64,6 +65,14 @@ struct FoodView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        showingVoice = true
+                    } label: {
+                        Image(systemName: "mic.fill")
+                    }
+                    .accessibilityLabel("Speak a log")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
                         showingCapture = true
                     } label: {
                         Image(systemName: "plus")
@@ -73,6 +82,9 @@ struct FoodView: View {
             }
             .sheet(isPresented: $showingCapture) {
                 NavigationStack { MealCaptureView() }
+            }
+            .sheet(isPresented: $showingVoice) {
+                VoiceLogView()
             }
             .sheet(item: $editing) { meal in
                 NavigationStack { MealEditorView(meal: meal) }

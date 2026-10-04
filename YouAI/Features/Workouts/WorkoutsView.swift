@@ -11,6 +11,7 @@ struct WorkoutsView: View {
     @State private var showingEditor = false
     @State private var showingEquipment = false
     @State private var editing: WorkoutSession?
+    @State private var showingVoice = false
 
     var body: some View {
         NavigationStack {
@@ -20,6 +21,13 @@ struct WorkoutsView: View {
                         showingEquipment = true
                     } label: {
                         Label("Photograph gym equipment", systemImage: "camera.viewfinder")
+                            .foregroundStyle(.primary)
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        showingVoice = true
+                    } label: {
+                        Label("Speak a log", systemImage: "mic.fill")
                             .foregroundStyle(.primary)
                     }
                     .buttonStyle(.plain)
@@ -81,6 +89,9 @@ struct WorkoutsView: View {
             }
             .sheet(isPresented: $showingEquipment) {
                 NavigationStack { EquipmentCaptureView() }
+            }
+            .sheet(isPresented: $showingVoice) {
+                VoiceLogView()
             }
         }
     }
