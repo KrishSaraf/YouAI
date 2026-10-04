@@ -3,3 +3,5 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # The project URL is public. It ships in the iOS app on purpose.
+  SECRETS_SCAN_OMIT_KEYS = "SUPABASE_URL"
