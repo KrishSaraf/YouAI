@@ -43,8 +43,30 @@ enum ExerciseCatalog {
     }
 
     static func contains(name: String) -> Bool {
-        let target = name.lowercased()
-        return exercises.contains { $0.name.lowercased() == target }
+        match(name: name) != nil
+    }
+
+    /// The catalog exercise a spoken or custom name is referring to, when one is close enough.
+    static func match(name: String) -> CatalogExercise? {
+        let query = NameKey(name)
+        guard !query.words.isEmpty else { return nil }
+
+        if let exact = exercises.first(where: { NameKey($0.name).squashed == query.squashed }) {
+            return exact
+        }
+
+        let hits = exercises.filter { exercise in
+            let candidate = NameKey(exercise.name)
+            return query.words.allSatisfy { word in
+                candidate.words.contains(word) || candidate.squashed.contains(word)
+            }
+        }
+        return hits.min { lhs, rhs in
+            let leftExtra = NameKey(lhs.name).words.count - query.words.count
+            let rightExtra = NameKey(rhs.name).words.count - query.words.count
+            if leftExtra != rightExtra { return leftExtra < rightExtra }
+            return lhs.name.count < rhs.name.count
+        }
     }
 
     private static func load() -> [CatalogExercise] {
@@ -119,9 +141,10 @@ struct LibraryEntry: Identifiable, Hashable {
     func matches(query: String, group selected: MuscleGroup) -> Bool {
         if selected != .all, group != selected { return false }
         guard !query.isEmpty else { return true }
-        return name.localizedCaseInsensitiveContains(query)
-            || muscle.localizedCaseInsensitiveContains(query)
-            || (equipment?.localizedCaseInsensitiveContains(query) ?? false)
+        let folded = NameKey(query).squashed
+        return NameKey(name).squashed.contains(folded)
+            || NameKey(muscle).squashed.contains(folded)
+            || NameKey(equipment ?? "").squashed.contains(folded)
     }
 
     init(catalog exercise: CatalogExercise) {
@@ -154,6 +177,23 @@ struct LibraryEntry: Identifiable, Hashable {
         images = []
         isCustom = true
         subtitle = exercise.muscleGroup
+    }
+}
+
+private struct NameKey {
+    let words: [String]
+    let squashed: String
+
+    init(_ raw: String) {
+        let dropped: Set<String> = ["a", "an", "the", "with", "machine"]
+        let cleaned = raw.lowercased().map { character -> Character in
+            character.isLetter || character.isNumber ? character : " "
+        }
+        words = String(cleaned)
+            .split(separator: " ")
+            .map(String.init)
+            .filter { $0.count > 1 && !dropped.contains($0) }
+        squashed = words.joined()
     }
 }
 

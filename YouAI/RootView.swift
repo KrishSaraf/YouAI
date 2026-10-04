@@ -22,17 +22,33 @@ struct RootView: View {
             await health.requestAuthorization()
             await health.refresh()
             await account.refreshCredentialState()
+            await tidyHabits()
             await account.sync(context: context, health: health, settings: settings)
+            await tidyHabits()
         }
         .onChange(of: account.isSignedIn) { _, signedIn in
             guard signedIn else { return }
-            Task { await account.sync(context: context, health: health, settings: settings) }
+            Task {
+                await tidyHabits()
+                await account.sync(context: context, health: health, settings: settings)
+                await tidyHabits()
+            }
         }
         .onChange(of: settings.weightUnit) { _, unit in
             Task { await account.storeSettings(unit) }
         }
         .onOpenURL { url in
             account.handle(url)
+        }
+    }
+
+    private func tidyHabits() async {
+        let result = SeedData.tidyHabits(in: context)
+        for id in result.removedCloudIDs {
+            await account.removeRecord(id)
+        }
+        for habit in result.renamed {
+            await account.storeHabit(habit)
         }
     }
 }

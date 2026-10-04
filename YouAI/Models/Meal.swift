@@ -81,4 +81,10 @@ final class Meal {
         get { MealType(rawValue: typeRaw) ?? .snack }
         set { typeRaw = newValue.rawValue }
     }
+
+    /// Same plate logged twice — used to stop sync from stacking copies.
+    var fingerprint: String {
+        let minute = Int(date.timeIntervalSince1970 / 60)
+        return "\(name.lowercased())|\(typeRaw)|\(minute)|\(Int(calories.rounded()))|\(Int(proteinG.rounded()))"
+    }
 }

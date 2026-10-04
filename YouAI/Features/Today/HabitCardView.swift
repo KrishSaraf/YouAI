@@ -6,83 +6,86 @@ struct HabitCardView: View {
     @Environment(\.modelContext) private var context
     @Environment(AccountStore.self) private var account
 
-    private let week = Date.trailingWeek()
+    @State private var showingEditor = false
+    @State private var confirmingDelete = false
+
     private let calendar = Calendar.current
 
+    private var today: Date { calendar.startOfDay(for: Date()) }
+    private var isTickedToday: Bool { habit.isTicked(on: today) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: habit.symbol)
-                    .foregroundStyle(.primary)
-                    .frame(width: 22)
-                Text(habit.name)
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                if streak > 0 {
-                    Label("\(streak)", systemImage: "flame.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
-                        .labelStyle(.titleAndIcon)
-                        .accessibilityLabel("\(streak) day streak")
-                }
-            }
-
-            HStack(spacing: 0) {
-                ForEach(week, id: \.self) { day in
-                    tickButton(for: day)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-        }
-        .padding(14)
-        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
-        .contextMenu {
-            Button("Archive habit", systemImage: "archivebox") {
-                habit.isActive = false
-                Task { await account.storeHabit(habit) }
-            }
-            Button("Delete habit", systemImage: "trash", role: .destructive) {
-                let cloudID = habit.cloudID
-                context.delete(habit)
-                Task { await account.removeRecord(cloudID) }
-            }
-        }
-    }
-
-    private func tickButton(for day: Date) -> some View {
-        let isTicked = habit.isTicked(on: day)
-        let isToday = calendar.isDateInToday(day)
-
-        return VStack(spacing: 6) {
-            Text(day.formatted(.dateTime.weekday(.narrow)))
-                .font(.caption2)
-                .foregroundStyle(isToday ? .primary : .secondary)
-
+        HStack(spacing: 12) {
             Button {
-                toggle(day)
+                toggle(today)
             } label: {
                 ZStack {
                     Circle()
-                        .fill(isTicked ? AnyShapeStyle(.primary) : AnyShapeStyle(.quaternary))
-                        .frame(width: 30, height: 30)
-                    if isTicked {
+                        .fill(isTickedToday ? AnyShapeStyle(.primary) : AnyShapeStyle(.quaternary))
+                        .frame(width: 36, height: 36)
+                    if isTickedToday {
                         Image(systemName: "checkmark")
-                            .font(.caption.weight(.bold))
+                            .font(.subheadline.weight(.bold))
                             .foregroundStyle(Color(.systemBackground))
-                    }
-                }
-                .overlay {
-                    if isToday {
-                        Circle()
-                            .strokeBorder(.primary, lineWidth: 2)
-                            .frame(width: 36, height: 36)
+                    } else {
+                        Image(systemName: habit.symbol)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(habit.name) on \(Fmt.day(day))")
-            .accessibilityValue(isTicked ? "Done" : "Not done")
-            .accessibilityAddTraits(isTicked ? [.isSelected, .isButton] : .isButton)
+            .accessibilityLabel(habit.name)
+            .accessibilityValue(isTickedToday ? "Done today" : "Not done today")
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(habit.name)
+                    .font(.subheadline.weight(.semibold))
+                if streak > 0 {
+                    Label("\(streak) day streak", systemImage: "flame.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else {
+                    Text(isTickedToday ? "Done today" : "Not yet today")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 4)
+
+            Button {
+                showingEditor = true
+            } label: {
+                Image(systemName: "pencil")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Edit \(habit.name)")
+
+            Button {
+                confirmingDelete = true
+            } label: {
+                Image(systemName: "trash")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Delete \(habit.name)")
+        }
+        .padding(14)
+        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
+        .sheet(isPresented: $showingEditor) {
+            HabitEditorSheet(habit: habit)
+        }
+        .confirmationDialog("Delete \(habit.name)?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { delete() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the habit and its history from this iPhone.")
         }
     }
 
@@ -98,13 +101,19 @@ struct HabitCardView: View {
         Task { await account.storeHabit(habit) }
     }
 
+    private func delete() {
+        let cloudID = habit.cloudID
+        context.delete(habit)
+        try? context.save()
+        Task { await account.removeRecord(cloudID) }
+    }
+
     /// Consecutive ticked days ending today (or yesterday, so a streak isn't
     /// reported as broken before the day is over).
     private var streak: Int {
         let ticked = Set(habit.ticks.map(\.day))
         guard !ticked.isEmpty else { return 0 }
 
-        let today = calendar.startOfDay(for: Date())
         var cursor = ticked.contains(today)
             ? today
             : calendar.date(byAdding: .day, value: -1, to: today) ?? today
@@ -119,25 +128,31 @@ struct HabitCardView: View {
     }
 }
 
-struct NewHabitSheet: View {
+struct HabitEditorSheet: View {
+    var habit: Habit?
+
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Environment(AccountStore.self) private var account
 
     @State private var name = ""
     @State private var symbol = "checkmark.circle"
+    @State private var hasLoaded = false
 
     private let symbols = [
         "checkmark.circle", "figure.strengthtraining.traditional", "figure.walk",
-        "fork.knife", "bed.double", "drop", "book", "brain.head.profile",
+        "fish.fill", "bed.double", "drop", "book", "brain.head.profile",
         "pills", "sun.max", "leaf", "heart",
     ]
+
+    private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
+    private var isEditing: Bool { habit != nil }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Name") {
-                    TextField("e.g. Stretch for 10 minutes", text: $name)
+                    TextField("e.g. Protein", text: $name)
                 }
 
                 Section("Icon") {
@@ -160,21 +175,38 @@ struct NewHabitSheet: View {
                     .padding(.vertical, 4)
                 }
             }
-            .navigationTitle("New habit")
+            .navigationTitle(isEditing ? "Edit habit" : "New habit")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        let habit = Habit(name: name.trimmingCharacters(in: .whitespaces), symbol: symbol)
-                        context.insert(habit)
-                        Task { await account.storeHabit(habit) }
-                        dismiss()
-                    }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button(isEditing ? "Save" : "Add") { save() }
+                        .disabled(trimmed.isEmpty)
+                }
+            }
+            .onAppear {
+                guard !hasLoaded else { return }
+                hasLoaded = true
+                if let habit {
+                    name = habit.name
+                    symbol = habit.symbol
                 }
             }
         }
+    }
+
+    private func save() {
+        if let habit {
+            habit.name = trimmed
+            habit.symbol = symbol
+            Task { await account.storeHabit(habit) }
+        } else {
+            let created = Habit(name: trimmed, symbol: symbol)
+            context.insert(created)
+            Task { await account.storeHabit(created) }
+        }
+        try? context.save()
+        dismiss()
     }
 }

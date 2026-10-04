@@ -10,6 +10,16 @@ struct EquipmentIdentification: Equatable {
     var isUnrecognised: Bool {
         suggestedExercises.isEmpty || equipmentName.lowercased().contains("no equipment")
     }
+
+    /// Use the library's own name when the suggestion is an exercise we already have.
+    func matchedToLibrary() -> EquipmentIdentification {
+        var seen = Set<String>()
+        let resolved = suggestedExercises.compactMap { suggestion -> String? in
+            let name = ExerciseCatalog.match(name: suggestion)?.name ?? suggestion
+            return seen.insert(name.lowercased()).inserted ? name : nil
+        }
+        return EquipmentIdentification(equipmentName: equipmentName, suggestedExercises: resolved, note: note)
+    }
 }
 
 struct EquipmentIdentifier {

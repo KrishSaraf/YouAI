@@ -7,14 +7,16 @@ import Supabase
 extension AccountStore {
     func sync(context: ModelContext, health: HealthKitManager, settings: AppSettings) async {
         guard isSignedIn else { return }
+        await dedupeMeals(context: context, health: health)
         await pull(context: context, health: health, settings: settings)
+        await dedupeMeals(context: context, health: health)
         await pushAll(context: context, settings: settings)
         await flushPendingHealth()
     }
 
     func storeMeal(_ meal: Meal) async {
         let id = CloudID.ensure(&meal.cloudID)
-        await upsert(id: id, kind: "meal", payload: RecordPayload(
+        let saved = await upsert(id: id, kind: "meal", payload: RecordPayload(
             name: meal.name,
             mealType: meal.typeRaw,
             loggedAt: CloudDate.string(meal.date),
@@ -25,6 +27,7 @@ extension AccountStore {
             wasEstimated: meal.wasEstimated,
             photoBase64: meal.photo?.base64EncodedString()
         ))
+        if !saved { meal.cloudID = "" }
     }
 
     func storeWorkout(_ session: WorkoutSession) async {
@@ -139,8 +142,8 @@ extension AccountStore {
         guard let data = response?.data,
               let rows = try? JSONDecoder().decode([StoredRecord].self, from: data) else { return }
 
-        let meals = (try? context.fetch(FetchDescriptor<Meal>())) ?? []
-        let mealIDs = Set(meals.map(\.cloudID))
+        var meals = (try? context.fetch(FetchDescriptor<Meal>())) ?? []
+        var mealIDs = Set(meals.map(\.cloudID).filter { !$0.isEmpty })
         let sessions = (try? context.fetch(FetchDescriptor<WorkoutSession>())) ?? []
         let sessionIDs = Set(sessions.map(\.cloudID))
         let habits = (try? context.fetch(FetchDescriptor<Habit>())) ?? []
@@ -151,14 +154,28 @@ extension AccountStore {
         for row in rows {
             switch row.kind {
             case "meal":
-                guard !mealIDs.contains(row.id) else { continue }
-                await insertMeal(row, context: context, health: health)
+                if mealIDs.contains(row.id) { continue }
+                if let local = meals.first(where: { mealMatches($0, row: row) }) {
+                    if local.cloudID.isEmpty {
+                        local.cloudID = row.id
+                        mealIDs.insert(row.id)
+                    }
+                    continue
+                }
+                let meal = await insertMeal(row, context: context, health: health)
+                meals.append(meal)
+                mealIDs.insert(row.id)
             case "workout":
                 guard !sessionIDs.contains(row.id) else { continue }
                 await insertWorkout(row, context: context, health: health)
             case "habit":
+                let remoteName = (row.payload.name ?? "").lowercased()
+                if SeedData.retiredHabitNames.contains(remoteName) {
+                    await removeRecord(row.id)
+                    continue
+                }
                 guard !habitIDs.contains(row.id) else { continue }
-                if let local = habits.first(where: { $0.name.lowercased() == (row.payload.name ?? "").lowercased() }) {
+                if let local = habits.first(where: { $0.name.lowercased() == remoteName }) {
                     if local.cloudID.isEmpty { local.cloudID = row.id }
                     continue
                 }
@@ -190,7 +207,8 @@ extension AccountStore {
         try? context.save()
     }
 
-    private func insertMeal(_ row: StoredRecord, context: ModelContext, health: HealthKitManager) async {
+    @discardableResult
+    private func insertMeal(_ row: StoredRecord, context: ModelContext, health: HealthKitManager) async -> Meal {
         let payload = row.payload
         let meal = Meal(
             name: payload.name ?? "Meal",
@@ -212,6 +230,100 @@ extension AccountStore {
             fatG: meal.fatG,
             date: meal.date
         )
+        return meal
+    }
+
+    private func mealMatches(_ meal: Meal, row: StoredRecord) -> Bool {
+        if meal.cloudID == row.id { return true }
+        return meal.fingerprint == fingerprint(for: row)
+    }
+
+    private func fingerprint(for row: StoredRecord) -> String {
+        let payload = row.payload
+        return Meal(
+            name: payload.name ?? "",
+            type: MealType(rawValue: payload.mealType ?? "") ?? .snack,
+            date: CloudDate.date(payload.loggedAt) ?? .distantPast,
+            calories: payload.calories ?? 0,
+            proteinG: payload.proteinG ?? 0
+        ).fingerprint
+    }
+
+    /// Keeps one copy of each meal and drops the extras from the phone and the account.
+    private func dedupeMeals(context: ModelContext, health: HealthKitManager) async {
+        let meals = (try? context.fetch(FetchDescriptor<Meal>(sortBy: [SortDescriptor(\.date, order: .reverse)]))) ?? []
+        var kept = [String: Meal]()
+        var doomed: [Meal] = []
+
+        for meal in meals {
+            let key = meal.fingerprint
+            if let existing = kept[key] {
+                // Prefer the copy that already has an account id / Health samples.
+                let preferNew =
+                    (existing.cloudID.isEmpty && !meal.cloudID.isEmpty)
+                    || (existing.healthKitSampleIDs.isEmpty && !meal.healthKitSampleIDs.isEmpty)
+                if preferNew {
+                    doomed.append(existing)
+                    kept[key] = meal
+                } else {
+                    doomed.append(meal)
+                }
+            } else {
+                kept[key] = meal
+            }
+        }
+
+        if !doomed.isEmpty {
+            let sampleIDs = doomed.flatMap(\.healthKitSampleIDs)
+            let cloudIDs = doomed.map(\.cloudID).filter { !$0.isEmpty }
+            for meal in doomed {
+                context.delete(meal)
+            }
+            try? context.save()
+            for id in cloudIDs { await removeRecord(id) }
+            await health.deleteSamples(ids: sampleIDs)
+        }
+
+        // Collapse duplicate account rows so the next pull cannot reimport them.
+        await dedupeCloudMeals(keeping: Array(kept.values))
+        try? context.save()
+    }
+
+    private func dedupeCloudMeals(keeping meals: [Meal]) async {
+        guard let client else { return }
+        let response = try? await client
+            .from("user_records")
+            .select("id,kind,payload")
+            .eq("kind", value: "meal")
+            .execute()
+        guard let data = response?.data,
+              let rows = try? JSONDecoder().decode([StoredRecord].self, from: data)
+        else { return }
+
+        var keepIDByFingerprint = Dictionary(
+            uniqueKeysWithValues: meals.compactMap { meal -> (String, String)? in
+                guard !meal.cloudID.isEmpty else { return nil }
+                return (meal.fingerprint, meal.cloudID)
+            }
+        )
+        var seen = Set<String>()
+
+        for row in rows {
+            let print = fingerprint(for: row)
+            if let keepID = keepIDByFingerprint[print] {
+                if row.id != keepID { await removeRecord(row.id) }
+                continue
+            }
+            if seen.contains(print) {
+                await removeRecord(row.id)
+                continue
+            }
+            seen.insert(print)
+            keepIDByFingerprint[print] = row.id
+            if let meal = meals.first(where: { $0.fingerprint == print }), meal.cloudID.isEmpty {
+                meal.cloudID = row.id
+            }
+        }
     }
 
     private func insertWorkout(_ row: StoredRecord, context: ModelContext, health: HealthKitManager) async {

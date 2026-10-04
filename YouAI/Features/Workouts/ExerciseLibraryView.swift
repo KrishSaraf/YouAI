@@ -10,32 +10,31 @@ struct ExerciseLibraryView: View {
     @State private var group: MuscleGroup = .all
     @State private var showingAdd = false
 
+    /// Names already in the library stay in that list. Only a genuinely new exercise is added.
     private var entries: [LibraryEntry] {
-        ExerciseCatalog.entries(matching: search, group: group, custom: custom)
+        let novel = custom.filter { ExerciseCatalog.match(name: $0.name) == nil }
+        return ExerciseCatalog.entries(matching: search, group: group, custom: novel)
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
-
-    private var customEntries: [LibraryEntry] { entries.filter(\.isCustom) }
-    private var catalogEntries: [LibraryEntry] { entries.filter { !$0.isCustom } }
 
     var body: some View {
         VStack(spacing: 0) {
+            searchField
             MuscleGroupBar(selection: $group)
             List {
-                if !customEntries.isEmpty {
-                    Section("Yours") {
-                        ForEach(customEntries) { entry in
-                            ExerciseRow(entry: entry)
-                        }
-                        .onDelete(perform: deleteCustom)
-                    }
-                }
-
                 Section {
-                    ForEach(catalogEntries) { entry in
+                    ForEach(entries) { entry in
                         NavigationLink {
                             ExerciseDetailView(entry: entry)
                         } label: {
                             ExerciseRow(entry: entry)
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            if entry.isCustom {
+                                Button("Delete", role: .destructive) {
+                                    deleteCustom(named: entry.name)
+                                }
+                            }
                         }
                     }
                 }
@@ -46,7 +45,6 @@ struct ExerciseLibraryView: View {
                 }
             }
         }
-        .searchable(text: $search, prompt: "Search exercises")
         .navigationTitle("Exercise library")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -61,18 +59,58 @@ struct ExerciseLibraryView: View {
         .sheet(isPresented: $showingAdd) {
             AddExerciseSheet()
         }
+        .task { await retireMatchedCustoms() }
     }
 
-    private func deleteCustom(at offsets: IndexSet) {
-        let names = Set(offsets.map { customEntries[$0].name.lowercased() })
-        let doomed = custom.filter { names.contains($0.name.lowercased()) }
+    /// A photo used to save a second copy of an exercise the library already has.
+    private func retireMatchedCustoms() async {
+        let matched = custom.filter { ExerciseCatalog.match(name: $0.name) != nil }
+        guard !matched.isEmpty else { return }
+        let cloudIDs = matched.map(\.cloudID)
+        for exercise in matched {
+            context.delete(exercise)
+        }
+        try? context.save()
+        for id in cloudIDs {
+            await account.removeRecord(id)
+        }
+    }
+
+    private func deleteCustom(named name: String) {
+        let doomed = custom.filter { $0.name.lowercased() == name.lowercased() }
         let cloudIDs = doomed.map(\.cloudID)
         for exercise in doomed {
             context.delete(exercise)
         }
+        try? context.save()
         Task {
             for id in cloudIDs { await account.removeRecord(id) }
         }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search exercises", text: $search)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            if !search.isEmpty {
+                Button {
+                    search = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 }
 
@@ -144,7 +182,7 @@ struct ExerciseRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name)
                     .foregroundStyle(.primary)
-                Text(entry.isCustom ? "\(entry.subtitle) · Added by you" : entry.subtitle)
+                Text(entry.subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

@@ -48,7 +48,7 @@ struct TodayView: View {
                 NavigationStack { MealCaptureView() }
             }
             .sheet(isPresented: $showingNewHabit) {
-                NewHabitSheet()
+                HabitEditorSheet()
             }
             .sheet(isPresented: $showingVoice) {
                 VoiceLogView()

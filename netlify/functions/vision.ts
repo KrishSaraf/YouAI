@@ -55,7 +55,7 @@ const tasks = {
       "",
       "Reply with only a JSON object. No prose, no markdown, no code fence. Keys:",
       '  "equipment_name": the machine or implement',
-      '  "suggested_exercises": up to 5 exercises this exact piece is actually used for, most common first. Name each the way a lifter would log it, for example "Lat pulldown" or "Romanian deadlift". Do not pad the list with unrelated movements.',
+      '  "suggested_exercises": up to 5 exercises this exact piece is actually used for, most common first. Prefer ordinary gym-library names a lifter would search for, for example "Pullups", "Wide-Grip Lat Pulldown", "Band Assisted Pull-Up", "Romanian Deadlift". Do not invent brand-specific names.',
       '  "note": one short setup cue for this piece, such as seat height, pad position, or grip. No lecture.',
       "",
       'If there is no gym equipment in the photo, set "equipment_name" to "No equipment detected", "suggested_exercises" to [], and "note" to "No gym equipment in the photo."',

@@ -29,6 +29,7 @@ struct HealthView: View {
                         ringsSection
                         metricsGrid
                         weightSection
+                        HabitHistorySection()
                         logSection
                     }
                 }

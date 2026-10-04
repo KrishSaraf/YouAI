@@ -281,7 +281,8 @@ struct ExercisePickerSheet: View {
     @State private var group: MuscleGroup = .all
 
     private var entries: [LibraryEntry] {
-        ExerciseCatalog.entries(matching: search, group: group, custom: custom)
+        let novel = custom.filter { ExerciseCatalog.match(name: $0.name) == nil }
+        return ExerciseCatalog.entries(matching: search, group: group, custom: novel)
     }
 
     private var trimmedSearch: String {
@@ -290,8 +291,8 @@ struct ExercisePickerSheet: View {
 
     private var canUseTypedName: Bool {
         guard !trimmedSearch.isEmpty else { return false }
+        if ExerciseCatalog.match(name: trimmedSearch) != nil { return false }
         let target = trimmedSearch.lowercased()
-        if ExerciseCatalog.contains(name: target) { return false }
         return !custom.contains { $0.name.lowercased() == target }
     }
 

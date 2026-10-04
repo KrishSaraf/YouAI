@@ -104,12 +104,12 @@ struct EquipmentCaptureView: View {
                     } header: {
                         Text("Exercises")
                     } footer: {
-                        Text("Pick the ones you did — they'll be added to a new session.")
+                        Text("These use the exercise library when there's a match. Something new is only added if it isn't there yet.")
                     }
 
                     Section {
                         Button {
-                            addSelectedToLibrary()
+                            rememberNovelSelections()
                             showingSession = true
                         } label: {
                             Label("Start a session with \(selected.count) exercise\(selected.count == 1 ? "" : "s")", systemImage: "arrow.right.circle")
@@ -137,7 +137,7 @@ struct EquipmentCaptureView: View {
             NavigationStack {
                 SessionEditorView(
                     session: nil,
-                    prefilledExercises: result?.suggestedExercises.filter { selected.contains($0) } ?? []
+                    prefilledExercises: selectedExercises
                 )
             }
         }
@@ -159,6 +159,10 @@ struct EquipmentCaptureView: View {
         }
     }
 
+    private var selectedExercises: [String] {
+        (result?.suggestedExercises ?? []).filter { selected.contains($0) }
+    }
+
     private func toggle(_ exercise: String) {
         if selected.contains(exercise) {
             selected.remove(exercise)
@@ -175,9 +179,9 @@ struct EquipmentCaptureView: View {
             do {
                 let token = try await account.accessTokenForRequest()
                 let identification = try await EquipmentIdentifier(client: NIMClient(sessionToken: token)).identify(from: image)
-                result = identification
-                // Preselect the most likely exercise so one tap gets you moving.
-                selected = Set(identification.suggestedExercises.prefix(1))
+                result = identification.matchedToLibrary()
+                // Prefer a library match when the model offered several names.
+                selected = Set(result?.suggestedExercises.prefix(1) ?? [])
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -185,17 +189,14 @@ struct EquipmentCaptureView: View {
         }
     }
 
-    /// Anything the model suggested that isn't in the library gets added, so it's
-    /// searchable next time without another photo.
-    private func addSelectedToLibrary() {
-        let group = result?.equipmentName ?? "Other"
+    /// Keep only exercises the library does not already have.
+    private func rememberNovelSelections() {
         let existing = (try? context.fetch(FetchDescriptor<Exercise>())) ?? []
         let names = Set(existing.map { $0.name.lowercased() })
-            .union(ExerciseCatalog.exercises.map { $0.name.lowercased() })
 
         var added: [Exercise] = []
-        for exercise in selected where !names.contains(exercise.lowercased()) {
-            let item = Exercise(name: exercise, muscleGroup: group, isCustom: true)
+        for exercise in selectedExercises where ExerciseCatalog.match(name: exercise) == nil && !names.contains(exercise.lowercased()) {
+            let item = Exercise(name: exercise, muscleGroup: "Other", isCustom: true)
             context.insert(item)
             added.append(item)
         }

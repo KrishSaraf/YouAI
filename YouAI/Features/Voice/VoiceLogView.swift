@@ -18,54 +18,38 @@ struct VoiceLogView: View {
     @State private var isSaving = false
     @State private var statusMessage: String?
 
+    private var hasTranscript: Bool {
+        !speech.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Button {
-                        proposal = nil
-                        statusMessage = nil
-                        speech.toggle()
-                    } label: {
-                        Label(speech.isListening ? "Stop" : "Speak", systemImage: speech.isListening ? "stop.fill" : "mic.fill")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.primary)
-
-                    TextField("What you said", text: $speech.transcript, axis: .vertical)
-                        .lineLimit(2...6)
-
-                    if let message = speech.errorMessage ?? statusMessage {
-                        Text(message)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } footer: {
-                    Text("Say a meal, a workout, your weight, water, sleep, or a habit. You'll confirm it before it saves.")
-                }
-
-                if !speech.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, proposal == nil {
-                    Section {
-                        Button {
-                            Task { await interpret() }
-                        } label: {
-                            HStack {
-                                Text("Log this")
-                                if isReading {
-                                    Spacer()
-                                    ProgressView()
+            Group {
+                if proposal != nil || (hasTranscript && !speech.isListening) {
+                    Form {
+                        transcriptSection
+                        if hasTranscript, proposal == nil {
+                            Section {
+                                Button {
+                                    Task { await interpret() }
+                                } label: {
+                                    HStack {
+                                        Text("Log this")
+                                        if isReading {
+                                            Spacer()
+                                            ProgressView()
+                                        }
+                                    }
                                 }
+                                .disabled(isReading)
                             }
                         }
-                        .disabled(isReading || speech.isListening)
+                        if let proposal {
+                            review(proposal)
+                        }
                     }
-                }
-
-                if let proposal {
-                    review(proposal)
+                } else {
+                    centeredSpeak
                 }
             }
             .navigationTitle("Speak a log")
@@ -78,6 +62,83 @@ struct VoiceLogView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var centeredSpeak: some View {
+        VStack(spacing: 28) {
+            Spacer(minLength: 0)
+
+            Button {
+                proposal = nil
+                statusMessage = nil
+                speech.toggle()
+            } label: {
+                VStack(spacing: 14) {
+                    Image(systemName: speech.isListening ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 36, weight: .semibold))
+                        .frame(width: 96, height: 96)
+                        .background(Color.primary, in: Circle())
+                        .foregroundStyle(Color(.systemBackground))
+                    Text(speech.isListening ? "Listening…" : "Speak")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.primary)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Text("Say a meal, a workout, your weight, water, sleep, or a habit.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+
+            if speech.isListening, hasTranscript {
+                Text(speech.transcript)
+                    .font(.body)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+            }
+
+            if let message = speech.errorMessage ?? statusMessage {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
+    }
+
+    private var transcriptSection: some View {
+        Section {
+            Button {
+                proposal = nil
+                statusMessage = nil
+                speech.toggle()
+            } label: {
+                Label(speech.isListening ? "Stop" : "Speak again", systemImage: speech.isListening ? "stop.fill" : "mic.fill")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.primary)
+
+            TextField("What you said", text: $speech.transcript, axis: .vertical)
+                .lineLimit(2...6)
+
+            if let message = speech.errorMessage ?? statusMessage {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        } footer: {
+            Text("You'll confirm it before it saves.")
         }
     }
 
