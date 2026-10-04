@@ -45,13 +45,13 @@ struct WeightTrendChart: View {
                     AreaMark(x: .value("Date", point.date), y: .value("Weight", point.value))
                         .foregroundStyle(
                             .linearGradient(
-                                colors: [.accentColor.opacity(0.3), .accentColor.opacity(0.02)],
+                                colors: [.primary.opacity(0.3), .primary.opacity(0.02)],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
                         )
                     LineMark(x: .value("Date", point.date), y: .value("Weight", point.value))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(Color.primary)
                         .interpolationMethod(.monotone)
                         .symbol(.circle)
                         .symbolSize(20)

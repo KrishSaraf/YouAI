@@ -120,19 +120,23 @@ struct TodayView: View {
                 showingWorkoutEditor = true
             } label: {
                 Label("Log workout", systemImage: "figure.strengthtraining.traditional")
+                    .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
             }
             .buttonStyle(.bordered)
+            .tint(.primary)
 
             Button {
                 showingMealLogger = true
             } label: {
                 Label("Log meal", systemImage: "fork.knife")
+                    .font(.subheadline.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
             }
             .buttonStyle(.bordered)
+            .tint(.primary)
         }
     }
 
@@ -209,7 +213,7 @@ struct HealthAccessBanner: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("No Health data yet")
                     .font(.subheadline.weight(.semibold))
-                Text("Allow You AI to read your data in Health → Sharing → Apps.")
+                Text("Allow Lean Lah! to read your data in Health → Sharing → Apps.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

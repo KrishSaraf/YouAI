@@ -9,6 +9,7 @@ struct SessionEditorView: View {
 
     @Environment(\.modelContext) private var context
     @Environment(HealthKitManager.self) private var health
+    @Environment(AccountStore.self) private var account
     @Environment(\.dismiss) private var dismiss
 
     @State private var name = ""
@@ -120,6 +121,7 @@ struct SessionEditorView: View {
             name = session.name
             date = session.date
             notes = session.notes
+            if session.durationMinutes > 0 { durationMinutes = session.durationMinutes }
             draftExercises = session.orderedExercises.map { exercise in
                 DraftExercise(
                     name: exercise.name,
@@ -136,6 +138,7 @@ struct SessionEditorView: View {
         target.name = name.trimmingCharacters(in: .whitespaces)
         target.date = date
         target.notes = notes
+        target.durationMinutes = durationMinutes
 
         // Rebuild the exercise tree rather than diffing it — the editor owns a
         // plain-value draft, and a session is small enough that this is cheap.
@@ -164,6 +167,11 @@ struct SessionEditorView: View {
         }
 
         try? context.save()
+        let saved = target
+        Task {
+            await account.storeWorkout(saved)
+            try? context.save()
+        }
 
         guard session == nil, mirrorToHealth else {
             dismiss()

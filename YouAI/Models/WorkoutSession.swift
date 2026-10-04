@@ -3,9 +3,11 @@ import SwiftData
 
 @Model
 final class WorkoutSession {
+    var cloudID: String = ""
     var name: String = ""
     var date: Date = Date()
     var notes: String = ""
+    var durationMinutes: Double = 60
     /// Set when this session has been mirrored into HealthKit as an HKWorkout, so edits can revise it.
     var healthKitWorkoutID: String?
 
@@ -69,6 +71,7 @@ final class ExerciseSet {
 /// Library of exercise names, seeded on first launch and extendable by the user.
 @Model
 final class Exercise {
+    var cloudID: String = ""
     @Attribute(.unique) var name: String = ""
     var muscleGroup: String = ""
     var isCustom: Bool = false

@@ -4,6 +4,7 @@ import SwiftData
 struct FoodView: View {
     @Environment(\.modelContext) private var context
     @Environment(HealthKitManager.self) private var health
+    @Environment(AccountStore.self) private var account
     @Query(sort: \Meal.date, order: .reverse) private var meals: [Meal]
 
     @State private var showingCapture = false
@@ -93,7 +94,7 @@ struct FoodView: View {
                 value: Fmt.whole(todaysMeals.reduce(0) { $0 + $1.proteinG }),
                 unit: "g",
                 symbol: "fish.fill",
-                tint: .blue
+                tint: .primary
             )
         }
     }
@@ -103,13 +104,16 @@ struct FoodView: View {
     private func delete(_ source: [Meal], at offsets: IndexSet) {
         let doomed = offsets.map { source[$0] }
         let sampleIDs = doomed.flatMap(\.healthKitSampleIDs)
+        let cloudIDs = doomed.map(\.cloudID)
 
         for meal in doomed {
             context.delete(meal)
         }
 
-        guard !sampleIDs.isEmpty else { return }
-        Task { await health.deleteSamples(ids: sampleIDs) }
+        Task {
+            for id in cloudIDs { await account.removeRecord(id) }
+            await health.deleteSamples(ids: sampleIDs)
+        }
     }
 }
 

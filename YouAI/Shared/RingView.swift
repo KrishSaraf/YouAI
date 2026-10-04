@@ -90,7 +90,7 @@ struct MetricTile: View {
     let value: String
     let unit: String?
     let symbol: String
-    var tint: Color = .accentColor
+    var tint: Color = .primary
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {

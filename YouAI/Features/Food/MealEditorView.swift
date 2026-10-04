@@ -8,6 +8,7 @@ struct MealEditorView: View {
 
     @Environment(\.modelContext) private var context
     @Environment(HealthKitManager.self) private var health
+    @Environment(AccountStore.self) private var account
     @Environment(\.dismiss) private var dismiss
 
     @State private var calories = ""
@@ -113,6 +114,8 @@ struct MealEditorView: View {
                 date: meal.date
             )
             try? context.save()
+            await account.storeMeal(meal)
+            try? context.save()
             isSaving = false
             dismiss()
         }
@@ -120,7 +123,9 @@ struct MealEditorView: View {
 
     private func delete() {
         let ids = meal.healthKitSampleIDs
+        let cloudID = meal.cloudID
         context.delete(meal)
+        Task { await account.removeRecord(cloudID) }
         Task {
             await health.deleteSamples(ids: ids)
             dismiss()

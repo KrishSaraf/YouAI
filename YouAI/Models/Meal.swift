@@ -37,6 +37,7 @@ enum MealType: String, Codable, CaseIterable, Identifiable {
 
 @Model
 final class Meal {
+    var cloudID: String = ""
     var name: String = ""
     var typeRaw: String = MealType.snack.rawValue
     var date: Date = Date()

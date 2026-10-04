@@ -3,6 +3,7 @@ import SwiftData
 
 @Model
 final class Habit {
+    var cloudID: String = ""
     var name: String = ""
     var symbol: String = "checkmark.circle"
     var isActive: Bool = true

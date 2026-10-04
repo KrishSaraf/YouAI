@@ -4,6 +4,7 @@ import SwiftData
 struct HabitCardView: View {
     @Bindable var habit: Habit
     @Environment(\.modelContext) private var context
+    @Environment(AccountStore.self) private var account
 
     private let week = Date.trailingWeek()
     private let calendar = Calendar.current
@@ -12,7 +13,7 @@ struct HabitCardView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Image(systemName: habit.symbol)
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(.primary)
                     .frame(width: 22)
                 Text(habit.name)
                     .font(.subheadline.weight(.semibold))
@@ -38,9 +39,12 @@ struct HabitCardView: View {
         .contextMenu {
             Button("Archive habit", systemImage: "archivebox") {
                 habit.isActive = false
+                Task { await account.storeHabit(habit) }
             }
             Button("Delete habit", systemImage: "trash", role: .destructive) {
+                let cloudID = habit.cloudID
                 context.delete(habit)
+                Task { await account.removeRecord(cloudID) }
             }
         }
     }
@@ -59,18 +63,18 @@ struct HabitCardView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(isTicked ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary))
+                        .fill(isTicked ? AnyShapeStyle(.primary) : AnyShapeStyle(.quaternary))
                         .frame(width: 30, height: 30)
                     if isTicked {
                         Image(systemName: "checkmark")
                             .font(.caption.weight(.bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(.systemBackground))
                     }
                 }
                 .overlay {
                     if isToday {
                         Circle()
-                            .strokeBorder(.tint, lineWidth: 2)
+                            .strokeBorder(.primary, lineWidth: 2)
                             .frame(width: 36, height: 36)
                     }
                 }
@@ -91,6 +95,7 @@ struct HabitCardView: View {
             context.insert(tick)
             habit.ticks.append(tick)
         }
+        Task { await account.storeHabit(habit) }
     }
 
     /// Consecutive ticked days ending today (or yesterday, so a streak isn't
@@ -117,6 +122,7 @@ struct HabitCardView: View {
 struct NewHabitSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @Environment(AccountStore.self) private var account
 
     @State private var name = ""
     @State private var symbol = "checkmark.circle"
@@ -144,7 +150,7 @@ struct NewHabitSheet: View {
                                     .font(.title3)
                                     .frame(width: 40, height: 40)
                                     .background(
-                                        symbol == candidate ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.clear),
+                                        symbol == candidate ? AnyShapeStyle(.primary.opacity(0.15)) : AnyShapeStyle(.clear),
                                         in: RoundedRectangle(cornerRadius: 8)
                                     )
                             }
@@ -161,7 +167,9 @@ struct NewHabitSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
-                        context.insert(Habit(name: name.trimmingCharacters(in: .whitespaces), symbol: symbol))
+                        let habit = Habit(name: name.trimmingCharacters(in: .whitespaces), symbol: symbol)
+                        context.insert(habit)
+                        Task { await account.storeHabit(habit) }
                         dismiss()
                     }
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)

@@ -148,7 +148,7 @@ export default async (req: Request) => {
         "Content-Type": "application/json",
         Accept: "application/json",
         "HTTP-Referer": "https://youai.app",
-        "X-Title": "You AI",
+        "X-Title": "Lean Lah!",
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(50_000),

@@ -9,7 +9,7 @@ import Supabase
 @MainActor
 @Observable
 final class AccountStore {
-    private let client: SupabaseClient?
+    let client: SupabaseClient?
 
     private(set) var accessToken: String?
     private(set) var email: String?

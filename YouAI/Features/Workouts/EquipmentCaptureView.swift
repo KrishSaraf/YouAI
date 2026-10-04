@@ -193,9 +193,15 @@ struct EquipmentCaptureView: View {
         let names = Set(existing.map { $0.name.lowercased() })
             .union(ExerciseCatalog.exercises.map { $0.name.lowercased() })
 
+        var added: [Exercise] = []
         for exercise in selected where !names.contains(exercise.lowercased()) {
-            context.insert(Exercise(name: exercise, muscleGroup: group, isCustom: true))
+            let item = Exercise(name: exercise, muscleGroup: group, isCustom: true)
+            context.insert(item)
+            added.append(item)
         }
         try? context.save()
+        Task {
+            for item in added { await account.storeExercise(item) }
+        }
     }
 }

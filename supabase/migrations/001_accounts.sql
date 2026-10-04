@@ -57,8 +57,8 @@ begin
   insert into public.photo_usage as usage (user_id, day, count)
   values (target_user, (timezone('utc', now()))::date, 1)
   on conflict (user_id, day)
-  do update set count = photo_usage.count + 1
-  where photo_usage.count < daily_limit
+  do update set count = usage.count + 1
+  where usage.count < daily_limit
   returning count into current_count;
 
   return current_count is not null;

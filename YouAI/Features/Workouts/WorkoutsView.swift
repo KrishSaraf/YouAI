@@ -4,6 +4,7 @@ import SwiftData
 struct WorkoutsView: View {
     @Environment(\.modelContext) private var context
     @Environment(HealthKitManager.self) private var health
+    @Environment(AccountStore.self) private var account
 
     @Query(sort: \WorkoutSession.date, order: .reverse) private var sessions: [WorkoutSession]
 
@@ -19,12 +20,16 @@ struct WorkoutsView: View {
                         showingEquipment = true
                     } label: {
                         Label("Photograph gym equipment", systemImage: "camera.viewfinder")
+                            .foregroundStyle(.primary)
                     }
+                    .buttonStyle(.plain)
                     Button {
                         showingEditor = true
                     } label: {
                         Label("Log a session", systemImage: "plus.circle")
+                            .foregroundStyle(.primary)
                     }
+                    .buttonStyle(.plain)
                     NavigationLink {
                         ExerciseLibraryView()
                     } label: {
@@ -81,8 +86,12 @@ struct WorkoutsView: View {
     }
 
     private func deleteSessions(at offsets: IndexSet) {
+        let cloudIDs = offsets.map { sessions[$0].cloudID }
         for index in offsets {
             context.delete(sessions[index])
+        }
+        Task {
+            for id in cloudIDs { await account.removeRecord(id) }
         }
     }
 }

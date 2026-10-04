@@ -11,6 +11,7 @@ struct EstimateReviewView: View {
 
     @Environment(\.modelContext) private var context
     @Environment(HealthKitManager.self) private var health
+    @Environment(AccountStore.self) private var account
     @Environment(\.dismiss) private var dismiss
 
     @State private var name = ""
@@ -148,6 +149,8 @@ struct EstimateReviewView: View {
                 date: meal.date
             )
             meal.healthKitSampleIDs = ids
+            try? context.save()
+            await account.storeMeal(meal)
             try? context.save()
 
             isSaving = false

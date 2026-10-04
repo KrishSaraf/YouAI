@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 
 struct ExerciseLibraryView: View {
+    @Environment(AccountStore.self) private var account
     @Environment(\.modelContext) private var context
     @Query(filter: #Predicate<Exercise> { $0.isCustom }, sort: \Exercise.name) private var custom: [Exercise]
 
@@ -64,8 +65,13 @@ struct ExerciseLibraryView: View {
 
     private func deleteCustom(at offsets: IndexSet) {
         let names = Set(offsets.map { customEntries[$0].name.lowercased() })
-        for exercise in custom where names.contains(exercise.name.lowercased()) {
+        let doomed = custom.filter { names.contains($0.name.lowercased()) }
+        let cloudIDs = doomed.map(\.cloudID)
+        for exercise in doomed {
             context.delete(exercise)
+        }
+        Task {
+            for id in cloudIDs { await account.removeRecord(id) }
         }
     }
 }
@@ -191,8 +197,8 @@ struct MuscleGroupBar: View {
                         .font(.subheadline.weight(.medium))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(selected ? Color.accentColor : Color(.tertiarySystemFill), in: Capsule())
-                        .foregroundStyle(selected ? Color.white : Color.primary)
+                        .background(selected ? Color.primary : Color(.tertiarySystemFill), in: Capsule())
+                        .foregroundStyle(selected ? Color(.systemBackground) : Color.primary)
                 }
             }
             .padding(.horizontal)
@@ -205,6 +211,7 @@ struct MuscleGroupBar: View {
 struct AddExerciseSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @Environment(AccountStore.self) private var account
     @Query private var existing: [Exercise]
 
     @State private var name = ""
@@ -242,7 +249,9 @@ struct AddExerciseSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
-                        context.insert(Exercise(name: trimmed, muscleGroup: muscleGroup.rawValue, isCustom: true))
+                        let exercise = Exercise(name: trimmed, muscleGroup: muscleGroup.rawValue, isCustom: true)
+                        context.insert(exercise)
+                        Task { await account.storeExercise(exercise) }
                         dismiss()
                     }
                     .disabled(trimmed.isEmpty || isDuplicate)

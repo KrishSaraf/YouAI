@@ -137,7 +137,7 @@ struct HealthView: View {
                 .font(.headline)
 
             LazyVGrid(columns: [GridItem(), GridItem()], spacing: 12) {
-                logButton("Weight", "scalemass", .blue) { sheet = .weight }
+                logButton("Weight", "scalemass", .primary) { sheet = .weight }
                 logButton("Sleep", "bed.double", .indigo) { sheet = .sleep }
                 logButton("Water", "drop", .cyan) { sheet = .water }
                 logButton("Vitals", "stethoscope", .pink) { sheet = .vitals }

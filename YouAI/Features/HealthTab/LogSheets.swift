@@ -5,6 +5,7 @@ import SwiftUI
 struct WeightLogSheet: View {
     @Environment(HealthKitManager.self) private var health
     @Environment(AppSettings.self) private var settings
+    @Environment(AccountStore.self) private var account
     @Environment(\.dismiss) private var dismiss
 
     @State private var value = ""
@@ -59,6 +60,7 @@ struct WeightLogSheet: View {
         isSaving = true
         Task {
             if await health.saveWeight(kilograms: kilograms, date: date) {
+                await account.storeWeight(kilograms: kilograms, date: date)
                 await health.refresh()
                 dismiss()
             }
@@ -71,6 +73,7 @@ struct WeightLogSheet: View {
 
 struct SleepLogSheet: View {
     @Environment(HealthKitManager.self) private var health
+    @Environment(AccountStore.self) private var account
     @Environment(\.dismiss) private var dismiss
 
     @State private var bedtime = Calendar.current.date(byAdding: .hour, value: -8, to: Date()) ?? Date()
@@ -112,6 +115,7 @@ struct SleepLogSheet: View {
         isSaving = true
         Task {
             if await health.saveSleep(start: bedtime, end: wakeTime) {
+                await account.storeSleep(start: bedtime, end: wakeTime)
                 await health.refresh()
                 dismiss()
             }
@@ -124,6 +128,7 @@ struct SleepLogSheet: View {
 
 struct WaterLogSheet: View {
     @Environment(HealthKitManager.self) private var health
+    @Environment(AccountStore.self) private var account
     @Environment(\.dismiss) private var dismiss
 
     @State private var millilitres: Double = 250
@@ -154,7 +159,7 @@ struct WaterLogSheet: View {
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 8)
                                     .background(
-                                        millilitres == preset ? AnyShapeStyle(.tint.opacity(0.2)) : AnyShapeStyle(.quaternary.opacity(0.4)),
+                                        millilitres == preset ? AnyShapeStyle(.primary.opacity(0.15)) : AnyShapeStyle(.quaternary.opacity(0.4)),
                                         in: RoundedRectangle(cornerRadius: 8)
                                     )
                             }
@@ -185,6 +190,7 @@ struct WaterLogSheet: View {
         isSaving = true
         Task {
             if await health.saveWater(litres: millilitres / 1000) {
+                await account.storeWater(millilitres: millilitres, date: Date())
                 await health.refresh()
                 dismiss()
             }
@@ -197,6 +203,7 @@ struct WaterLogSheet: View {
 
 struct VitalsLogSheet: View {
     @Environment(HealthKitManager.self) private var health
+    @Environment(AccountStore.self) private var account
     @Environment(\.dismiss) private var dismiss
 
     @State private var systolic = ""
@@ -280,14 +287,27 @@ struct VitalsLogSheet: View {
     private func save() {
         isSaving = true
         Task {
+            let systolicValue = number(systolic)
+            let diastolicValue = number(diastolic)
+            let temperatureValue = number(temperature)
+            let oxygenValue = number(oxygen)
             let saved = await health.saveVitals(
-                systolic: number(systolic),
-                diastolic: number(diastolic),
-                temperatureC: number(temperature),
-                oxygenPercent: number(oxygen),
+                systolic: systolicValue,
+                diastolic: diastolicValue,
+                temperatureC: temperatureValue,
+                oxygenPercent: oxygenValue,
                 date: date
             )
-            if saved { dismiss() }
+            if saved {
+                await account.storeVitals(
+                    systolic: systolicValue,
+                    diastolic: diastolicValue,
+                    temperatureC: temperatureValue,
+                    oxygenPercent: oxygenValue,
+                    date: date
+                )
+                dismiss()
+            }
             isSaving = false
         }
     }
