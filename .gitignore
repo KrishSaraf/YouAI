@@ -28,3 +28,5 @@ Package.resolved
 !.env.example
 Secrets.swift
 node_modules/
+
+.apple-client-secret

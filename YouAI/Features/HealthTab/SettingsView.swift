@@ -14,6 +14,10 @@ struct SettingsView: View {
             Section {
                 if account.isSignedIn {
                     LabeledContent("Account", value: account.email ?? "Signed in")
+                    Button("Sign out") {
+                        Task { await account.signOut() }
+                    }
+                    .disabled(isDeleting)
                     Button("Delete account", role: .destructive) {
                         confirmingDelete = true
                     }

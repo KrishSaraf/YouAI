@@ -3,8 +3,8 @@ import { authorize } from "./_shared/auth";
 import { consumePhotoCredit } from "./_shared/accounts";
 import { json } from "./_shared/http";
 
-const NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
-const DEFAULT_MODEL = "meta/llama-3.2-90b-vision-instruct";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const DEFAULT_MODEL = "google/gemini-2.5-flash";
 
 // Photos are compressed under ~170 KB of base64 before they leave the phone.
 const MAX_BODY_CHARS = 400_000;
@@ -13,16 +13,22 @@ const MAX_IMAGE_CHARS = 180_000;
 const tasks = {
   meal: {
     prompt: [
-      "You are a nutrition estimator. Look at this photo of a meal and estimate its contents for a single serving as shown.",
+      "You are a careful nutrition estimator. The user will log this estimate only after reviewing it, so accuracy matters more than a round restaurant-menu number.",
       "",
-      "Reply with only a JSON object, no prose and no code fences, with these keys:",
-      '  "name": a short dish name, at most 5 words',
-      '  "meal_type": one of breakfast, lunch, dinner, snack',
-      '  "calories": total kilocalories, a number',
-      '  "protein_g", "carbs_g", "fat_g": grams, numbers',
-      '  "note": one short sentence on what you assumed about portion size',
+      "Look only at what is visible. Estimate the serving in the photo, not a generic database entry for the dish name.",
+      "1. List the visible components: protein, starch or bread, vegetables, fruit, sauce, oil, cheese, dressing, and any drink.",
+      "2. Judge portion size from the plate, bowl, utensils, hands, or packaging in the frame. If scale is unclear, assume a typical single serving and say so.",
+      "3. Estimate each component, then sum. Count cooking oil, sauces, cheese, nuts, and dressings. They often dominate the calories. Do not invent hidden ingredients.",
+      "4. If several foods are on one plate, name the plate as a whole and include all of them. If it is only a drink, estimate the drink.",
       "",
-      'If the photo does not contain food, set "name" to "No food detected" and all numbers to 0.',
+      "Reply with only a JSON object. No prose, no markdown, no code fence. Use numbers, not numeric strings. Keys:",
+      '  "name": short dish name, at most 5 words, as a person would log it',
+      '  "meal_type": one of breakfast, lunch, dinner, snack, chosen by what the food is',
+      '  "calories": total kilocalories for the serving shown, rounded to the nearest 10',
+      '  "protein_g", "carbs_g", "fat_g": grams for that same serving, rounded to the nearest gram',
+      '  "note": one short sentence on the portion you assumed and any uncertain item',
+      "",
+      'Protein, carbs, and fat should be plausible for the calorie total. If the photo does not contain food or drink, set "name" to "No food detected", all numbers to 0, and "note" to "No food in the photo."',
     ].join("\n"),
     schema: {
       type: "object",
@@ -41,14 +47,18 @@ const tasks = {
   },
   equipment: {
     prompt: [
-      "You are a strength-training coach. Identify the piece of gym equipment in this photo and list the exercises it is used for.",
+      "You are a strength coach identifying gym equipment from a photo so the user can start a workout log.",
       "",
-      "Reply with only a JSON object, no prose and no code fences, with these keys:",
-      '  "equipment_name": what the machine or equipment is called',
-      '  "suggested_exercises": up to 5 exercise names you\'d perform on it, most common first, each named the way a lifter would log it',
-      '  "note": one short sentence of setup advice',
+      "Name only the main piece that fills the frame. Distinguish lookalikes: leg extension versus leg curl, lat pulldown versus seated row, hack squat versus leg press, Smith machine versus a power rack, cable station versus a specific cable machine.",
+      "Use the name a lifter would say, not a brand, unless the brand label is clearly readable. Do not invent a brand.",
+      "If several machines are visible, identify the closest one. Ignore people, flooring, and loose plates unless they are the subject.",
       "",
-      'If there is no gym equipment in the photo, set "equipment_name" to "No equipment detected" and "suggested_exercises" to an empty array.',
+      "Reply with only a JSON object. No prose, no markdown, no code fence. Keys:",
+      '  "equipment_name": the machine or implement',
+      '  "suggested_exercises": up to 5 exercises this exact piece is actually used for, most common first. Name each the way a lifter would log it, for example "Lat pulldown" or "Romanian deadlift". Do not pad the list with unrelated movements.',
+      '  "note": one short setup cue for this piece, such as seat height, pad position, or grip. No lecture.',
+      "",
+      'If there is no gym equipment in the photo, set "equipment_name" to "No equipment detected", "suggested_exercises" to [], and "note" to "No gym equipment in the photo."',
     ].join("\n"),
     schema: {
       type: "object",
@@ -74,9 +84,9 @@ export default async (req: Request) => {
     return json({ error: "Method not allowed" }, 405);
   }
 
-  const apiKey = Netlify.env.get("NVIDIA_API_KEY");
+  const apiKey = Netlify.env.get("OPENROUTER_API_KEY");
   if (!apiKey) {
-    console.error("NVIDIA_API_KEY is not set");
+    console.error("OPENROUTER_API_KEY is not set");
     return json({ error: "Photo estimates aren't available right now." }, 503);
   }
 
@@ -119,43 +129,38 @@ export default async (req: Request) => {
   }
 
   const task = tasks[taskName as TaskName];
-  const model = Netlify.env.get("NVIDIA_VISION_MODEL") || DEFAULT_MODEL;
-  const encoding = Netlify.env.get("NVIDIA_IMAGE_ENCODING") === "inlineHTMLTag"
-    ? "inlineHTMLTag"
-    : "openAIImageURL";
+  const model = Netlify.env.get("OPENROUTER_VISION_MODEL") || DEFAULT_MODEL;
 
   const body = {
     model,
-    messages: [message(task.prompt, payload.image_data_url, encoding)],
+    messages: [message(task.prompt, payload.image_data_url)],
     max_tokens: 700,
     temperature: 0.2,
     stream: false,
-    response_format: {
-      type: "json_schema",
-      json_schema: { name: "response", strict: true, schema: task.schema },
-    },
   };
 
   let upstream: Response;
   try {
-    upstream = await fetch(NVIDIA_URL, {
+    upstream = await fetch(OPENROUTER_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         Accept: "application/json",
+        "HTTP-Referer": "https://youai.app",
+        "X-Title": "You AI",
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(50_000),
     });
   } catch (error) {
-    console.error("NVIDIA request failed", error);
+    console.error("OpenRouter request failed", error);
     return json({ error: "Couldn't read that photo. Try again." }, 502);
   }
 
   const upstreamText = await upstream.text();
   if (!upstream.ok) {
-    console.error("NVIDIA API", upstream.status, upstreamText.slice(0, 500));
+    console.error("OpenRouter", upstream.status, upstreamText.slice(0, 500));
     return json({ error: "Couldn't read that photo. Try again." }, 502);
   }
 
@@ -170,11 +175,7 @@ export const config: Config = {
   method: "POST",
 };
 
-function message(prompt: string, image: string, encoding: string) {
-  if (encoding === "inlineHTMLTag") {
-    return { role: "user", content: `${prompt} <img src="${image}" />` };
-  }
-
+function message(prompt: string, image: string) {
   return {
     role: "user",
     content: [

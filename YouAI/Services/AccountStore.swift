@@ -101,24 +101,30 @@ final class AccountStore {
         }
     }
 
+    func signOut() async {
+        try? await client?.auth.signOut()
+        apply(nil)
+    }
+
     func deleteAccount() async throws {
-        guard let token = try? await accessTokenForRequest() else {
+        guard let client else {
             await signOut()
-            return
+            throw ServerError.notConfigured
         }
-        guard let url = APIConfig.endpoint("api/account") else { throw ServerError.notConfigured }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            if http.statusCode == 401 {
-                await signOut()
-                return
+        do {
+            try await client.rpc("delete_own_account").execute()
+        } catch {
+            if let url = APIConfig.endpoint("api/account"),
+               let token = try? await accessTokenForRequest() {
+                var request = URLRequest(url: url)
+                request.httpMethod = "DELETE"
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                let (data, response) = try await URLSession.shared.data(for: request)
+                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode), http.statusCode != 401 {
+                    throw ServerError.parse(data: data, fallback: "Couldn't delete the account. Try again.")
+                }
             }
-            throw ServerError.parse(data: data, fallback: "Couldn't delete the account. Try again.")
         }
         await signOut()
     }
@@ -152,11 +158,6 @@ final class AccountStore {
         accessToken = session?.accessToken
         email = session?.user.email
         appleUserID = session?.user.identities?.first { $0.provider == "apple" }?.id
-    }
-
-    private func signOut() async {
-        try? await client?.auth.signOut()
-        apply(nil)
     }
 
     private func validate(email: String, password: String) throws {

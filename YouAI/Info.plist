@@ -39,9 +39,9 @@
 	<key>APIBaseURL</key>
 	<string>https://YOUR-SITE.netlify.app</string>
 	<key>SupabaseURL</key>
-	<string>https://YOUR-PROJECT.supabase.co</string>
+	<string>https://lijwiqzykqpyhguodywe.supabase.co</string>
 	<key>SupabaseAnonKey</key>
-	<string>YOUR-ANON-KEY</string>
+	<string>sb_publishable_htRjc8KfKqEWFjCROrWGHA_qsEmNtoT</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
