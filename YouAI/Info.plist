@@ -37,7 +37,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>You AI lets you pick an existing photo of a meal instead of taking a new one.</string>
 	<key>APIBaseURL</key>
-	<string>https://YOUR-SITE.netlify.app</string>
+	<string>https://leanlah.netlify.app</string>
 	<key>SupabaseURL</key>
 	<string>https://lijwiqzykqpyhguodywe.supabase.co</string>
 	<key>SupabaseAnonKey</key>

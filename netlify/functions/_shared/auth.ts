@@ -1,5 +1,12 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import WebSocket from "ws";
 import { json } from "./http";
+
+// Netlify's function runtime does not provide a global WebSocket. The Supabase
+// client constructs one during startup, so install the same implementation Node 22 uses.
+if (typeof globalThis.WebSocket === "undefined") {
+  globalThis.WebSocket = WebSocket as unknown as typeof globalThis.WebSocket;
+}
 
 export function supabaseAdmin(): SupabaseClient | null {
   const url = Netlify.env.get("SUPABASE_URL");

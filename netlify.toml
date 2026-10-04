@@ -2,6 +2,6 @@
   publish = "public"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
   # The project URL is public. It ships in the iOS app on purpose.
   SECRETS_SCAN_OMIT_KEYS = "SUPABASE_URL"
