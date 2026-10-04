@@ -1,4 +1,8 @@
 name: YouAI
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: 2.55.3
 options:
   bundleIdPrefix: com.ht
   deploymentTarget:
@@ -44,6 +48,7 @@ targets:
     dependencies:
       - sdk: HealthKit.framework
       - sdk: AuthenticationServices.framework
+      - package: Supabase
 
 schemes:
   YouAI:

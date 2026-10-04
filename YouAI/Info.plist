@@ -38,5 +38,20 @@
 	<string>You AI lets you pick an existing photo of a meal instead of taking a new one.</string>
 	<key>APIBaseURL</key>
 	<string>https://YOUR-SITE.netlify.app</string>
+	<key>SupabaseURL</key>
+	<string>https://YOUR-PROJECT.supabase.co</string>
+	<key>SupabaseAnonKey</key>
+	<string>YOUR-ANON-KEY</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.ht.YouAI</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>youai</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

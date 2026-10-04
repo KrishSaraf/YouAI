@@ -13,13 +13,13 @@ struct SettingsView: View {
         Form {
             Section {
                 if account.isSignedIn {
-                    LabeledContent("Account", value: "Signed in")
+                    LabeledContent("Account", value: account.email ?? "Signed in")
                     Button("Delete account", role: .destructive) {
                         confirmingDelete = true
                     }
                     .disabled(isDeleting)
                 } else {
-                    SignInWithAppleButtonRow()
+                    AccountSignInSection()
                 }
             } footer: {
                 Text(account.isSignedIn
@@ -59,7 +59,7 @@ struct SettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes your sign-in. You can also disconnect You AI in your Apple ID settings.")
+            Text("This removes your sign-in. Meals and workouts on this iPhone stay here.")
         }
         .alert("Couldn't delete the account", isPresented: .constant(errorMessage != nil)) {
             Button("OK") { errorMessage = nil }

@@ -1,23 +1,22 @@
 import AuthenticationServices
 import SwiftUI
 
-struct SignInWithAppleButtonRow: View {
+struct AccountSignInSection: View {
     @Environment(AccountStore.self) private var account
+
+    @State private var email = ""
+    @State private var password = ""
+    @State private var rawNonce = ""
+    @State private var isWorking = false
+    @State private var errorMessage: String?
+    @State private var notice: String?
+
     @Environment(\.colorScheme) private var colorScheme
 
-    @State private var isSigningIn = false
-    @State private var errorMessage: String?
-
     var body: some View {
-        SignInWithAppleButton(.signIn) { request in
-            request.requestedScopes = []
-        } onCompletion: { result in
-            Task { await handle(result) }
+        Group {
+            signInControls
         }
-        .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
-        .frame(height: 44)
-        .disabled(isSigningIn)
-        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .alert("Couldn't sign in", isPresented: .constant(errorMessage != nil)) {
             Button("OK") { errorMessage = nil }
         } message: {
@@ -25,11 +24,68 @@ struct SignInWithAppleButtonRow: View {
         }
     }
 
-    private func handle(_ result: Result<ASAuthorization, Error>) async {
+    @ViewBuilder
+    private var signInControls: some View {
+        SignInWithAppleButton(.signIn) { request in
+            let nonce = AppleSignInNonce.random()
+            rawNonce = nonce
+            request.requestedScopes = [.email]
+            request.nonce = AppleSignInNonce.sha256(nonce)
+        } onCompletion: { result in
+            Task { await handleApple(result) }
+        }
+        .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+        .frame(height: 44)
+        .disabled(isWorking)
+        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
+
+        Button {
+            Task { await run { try await account.signInWithGoogle() } }
+        } label: {
+            Text("Continue with Google")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isWorking)
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+
+        TextField("Email", text: $email)
+            .textContentType(.username)
+            .textInputAutocapitalization(.never)
+            .keyboardType(.emailAddress)
+            .autocorrectionDisabled()
+        SecureField("Password", text: $password)
+            .textContentType(.password)
+
+        HStack {
+            Button("Sign in") {
+                Task { await run { try await account.signIn(email: trimmedEmail, password: password) } }
+            }
+            .disabled(isWorking || trimmedEmail.isEmpty || password.isEmpty)
+
+            Spacer()
+
+            Button("Create account") {
+                Task { await createAccount() }
+            }
+            .disabled(isWorking || trimmedEmail.isEmpty || password.isEmpty)
+        }
+
+        if let notice {
+            Text(notice)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var trimmedEmail: String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func handleApple(_ result: Result<ASAuthorization, Error>) async {
         switch result {
         case .failure(let error):
-            let code = (error as NSError).code
-            if code == ASAuthorizationError.canceled.rawValue { return }
+            if (error as NSError).code == ASAuthorizationError.canceled.rawValue { return }
             errorMessage = "Couldn't sign in. Try again."
         case .success(let authorization):
             guard
@@ -40,19 +96,31 @@ struct SignInWithAppleButtonRow: View {
                 errorMessage = "Couldn't sign in. Try again."
                 return
             }
-
-            let code = credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }
-            isSigningIn = true
-            defer { isSigningIn = false }
-            do {
-                try await account.signIn(
-                    identityToken: token,
-                    authorizationCode: code,
-                    appleUserID: credential.user
-                )
-            } catch {
-                errorMessage = error.localizedDescription
+            await run {
+                try await account.signInWithApple(identityToken: token, nonce: rawNonce)
             }
+        }
+    }
+
+    private func createAccount() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let needsConfirmation = try await account.createAccount(email: trimmedEmail, password: password)
+            notice = needsConfirmation ? "Check your email to finish creating the account." : nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func run(_ action: () async throws -> Void) async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            try await action()
+            notice = nil
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }

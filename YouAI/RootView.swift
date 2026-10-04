@@ -20,5 +20,8 @@ struct RootView: View {
             await health.refresh()
             await account.refreshCredentialState()
         }
+        .onOpenURL { url in
+            account.handle(url)
+        }
     }
 }

@@ -64,7 +64,7 @@ struct EquipmentCaptureView: View {
                     }
                 } else {
                     Section {
-                        SignInWithAppleButtonRow()
+                        AccountSignInSection()
                     } footer: {
                         Text("Sign in to identify this photo.")
                     }
@@ -173,7 +173,8 @@ struct EquipmentCaptureView: View {
 
         Task {
             do {
-                let identification = try await EquipmentIdentifier(client: NIMClient(sessionToken: account.sessionToken)).identify(from: image)
+                let token = try await account.accessTokenForRequest()
+                let identification = try await EquipmentIdentifier(client: NIMClient(sessionToken: token)).identify(from: image)
                 result = identification
                 // Preselect the most likely exercise so one tap gets you moving.
                 selected = Set(identification.suggestedExercises.prefix(1))

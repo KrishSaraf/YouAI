@@ -63,7 +63,7 @@ struct MealCaptureView: View {
                     }
                 } else {
                     Section {
-                        SignInWithAppleButtonRow()
+                        AccountSignInSection()
                     } footer: {
                         Text("Sign in to estimate this photo. You can still log the meal yourself.")
                     }
@@ -138,7 +138,8 @@ struct MealCaptureView: View {
 
         Task {
             do {
-                estimate = try await MealEstimator(client: NIMClient(sessionToken: account.sessionToken)).estimate(from: image)
+                let token = try await account.accessTokenForRequest()
+                estimate = try await MealEstimator(client: NIMClient(sessionToken: token)).estimate(from: image)
             } catch {
                 errorMessage = error.localizedDescription
             }
