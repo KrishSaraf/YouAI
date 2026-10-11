@@ -263,6 +263,13 @@ final class HealthKitManager {
         }
     }
 
+    /// Removes a workout this app wrote, so deleting a session doesn't leave it in Health.
+    func deleteWorkout(id: String) async {
+        guard let uuid = UUID(uuidString: id) else { return }
+        let predicate = HKQuery.predicateForObjects(with: [uuid])
+        _ = try? await store.deleteObjects(of: HKObjectType.workoutType(), predicate: predicate)
+    }
+
     // MARK: - Nutrition
 
     /// Writes a meal's macros as four correlated samples. Returns their UUIDs so

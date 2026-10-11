@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftData
 import Supabase
@@ -7,6 +8,7 @@ import Supabase
 extension AccountStore {
     func sync(context: ModelContext, health: HealthKitManager, settings: AppSettings) async {
         guard isSignedIn else { return }
+        await flushPendingDeletes()
         await dedupeMeals(context: context, health: health)
         await pull(context: context, health: health, settings: settings)
         await dedupeMeals(context: context, health: health)
@@ -16,7 +18,28 @@ extension AccountStore {
 
     func storeMeal(_ meal: Meal) async {
         let id = CloudID.ensure(&meal.cloudID)
-        let saved = await upsert(id: id, kind: "meal", payload: RecordPayload(
+        let saved = await upsert(id: id, kind: "meal", payload: Self.payload(for: meal))
+        if !saved { meal.cloudID = "" }
+    }
+
+    func storeWorkout(_ session: WorkoutSession) async {
+        let id = CloudID.ensure(&session.cloudID)
+        await upsert(id: id, kind: "workout", payload: Self.payload(for: session))
+    }
+
+    func storeHabit(_ habit: Habit) async {
+        let id = CloudID.ensure(&habit.cloudID)
+        await upsert(id: id, kind: "habit", payload: Self.payload(for: habit))
+    }
+
+    func storeExercise(_ exercise: Exercise) async {
+        guard exercise.isCustom else { return }
+        let id = CloudID.ensure(&exercise.cloudID)
+        await upsert(id: id, kind: "exercise", payload: Self.payload(for: exercise))
+    }
+
+    private static func payload(for meal: Meal) -> RecordPayload {
+        RecordPayload(
             name: meal.name,
             mealType: meal.typeRaw,
             loggedAt: CloudDate.string(meal.date),
@@ -26,46 +49,37 @@ extension AccountStore {
             fatG: meal.fatG,
             wasEstimated: meal.wasEstimated,
             photoBase64: meal.photo?.base64EncodedString()
-        ))
-        if !saved { meal.cloudID = "" }
+        )
     }
 
-    func storeWorkout(_ session: WorkoutSession) async {
-        let id = CloudID.ensure(&session.cloudID)
+    private static func payload(for session: WorkoutSession) -> RecordPayload {
         let exercises = session.orderedExercises.map { exercise in
             CloudExercise(
                 name: exercise.name,
                 sets: exercise.orderedSets.map { CloudSet(weightKg: $0.weightKg, reps: $0.reps) }
             )
         }
-        await upsert(id: id, kind: "workout", payload: RecordPayload(
+        return RecordPayload(
             name: session.name,
             loggedAt: CloudDate.string(session.date),
             notes: session.notes,
             durationMinutes: session.durationMinutes,
             exercises: exercises
-        ))
+        )
     }
 
-    func storeHabit(_ habit: Habit) async {
-        let id = CloudID.ensure(&habit.cloudID)
-        let ticks = habit.ticks.map { CloudDate.string($0.day) }
-        await upsert(id: id, kind: "habit", payload: RecordPayload(
+    private static func payload(for habit: Habit) -> RecordPayload {
+        RecordPayload(
             name: habit.name,
             symbol: habit.symbol,
             isActive: habit.isActive,
             createdAt: CloudDate.string(habit.createdAt),
-            ticks: ticks
-        ))
+            ticks: habit.ticks.map { CloudDate.string($0.day) }.sorted()
+        )
     }
 
-    func storeExercise(_ exercise: Exercise) async {
-        guard exercise.isCustom else { return }
-        let id = CloudID.ensure(&exercise.cloudID)
-        await upsert(id: id, kind: "exercise", payload: RecordPayload(
-            name: exercise.name,
-            muscleGroup: exercise.muscleGroup
-        ))
+    private static func payload(for exercise: Exercise) -> RecordPayload {
+        RecordPayload(name: exercise.name, muscleGroup: exercise.muscleGroup)
     }
 
     func storeSettings(_ unit: WeightUnit) async {
@@ -110,9 +124,27 @@ extension AccountStore {
         ))
     }
 
+    /// Marks the record deleted on the account. Queued until it reaches the server,
+    /// so a delete made offline or signed out still sticks.
     func removeRecord(_ id: String) async {
-        guard !id.isEmpty, let client else { return }
-        _ = try? await client.from("user_records").delete().eq("id", value: id).execute()
+        guard !id.isEmpty else { return }
+        PendingDeletes.add(id)
+        await flushPendingDeletes()
+    }
+
+    private func flushPendingDeletes() async {
+        guard let client, currentUserID != nil else { return }
+        for id in PendingDeletes.load() {
+            do {
+                try await client.from("user_records")
+                    .update(Tombstone(deleted_at: CloudDate.string(Date())), returning: .minimal)
+                    .eq("id", value: id)
+                    .execute()
+                PendingDeletes.remove(id)
+            } catch {
+                // Stays queued for the next sync.
+            }
+        }
     }
 
     private var currentUserID: UUID? {
@@ -138,9 +170,44 @@ extension AccountStore {
 
     private func pull(context: ModelContext, health: HealthKitManager, settings: AppSettings) async {
         guard let client else { return }
-        let response = try? await client.from("user_records").select("id,kind,payload").execute()
-        guard let data = response?.data,
-              let rows = try? JSONDecoder().decode([StoredRecord].self, from: data) else { return }
+        // First just the ids, so records this phone already has aren't downloaded again.
+        let listing = try? await client.from("user_records").select("id,kind,deleted_at").execute()
+        guard let listData = listing?.data,
+              let index = try? JSONDecoder().decode([RecordIndex].self, from: listData) else { return }
+
+        // Deleted on another phone: remove the copy here before matching anything.
+        for entry in index where entry.deleted_at != nil {
+            await applyDeletion(id: entry.id, kind: entry.kind, context: context, health: health)
+        }
+
+        let known = Set(
+            ((try? context.fetch(FetchDescriptor<Meal>())) ?? []).map(\.cloudID)
+            + ((try? context.fetch(FetchDescriptor<WorkoutSession>())) ?? []).map(\.cloudID)
+            + ((try? context.fetch(FetchDescriptor<Habit>())) ?? []).map(\.cloudID)
+            + ((try? context.fetch(FetchDescriptor<Exercise>())) ?? []).map(\.cloudID)
+        ).subtracting([""])
+        let settingsApplied = UserDefaults.standard.bool(forKey: CloudKeys.didApplySettings)
+        let needed = index.filter { entry in
+            guard entry.deleted_at == nil else { return false }
+            switch entry.kind {
+            case "meal", "workout", "habit", "exercise": return !known.contains(entry.id)
+            case "settings": return !settingsApplied
+            case "weight", "water", "sleep", "vitals": return !AppliedHealthLogs.contains(entry.id)
+            default: return false
+            }
+        }.map(\.id)
+
+        var rows: [StoredRecord] = []
+        for start in stride(from: 0, to: needed.count, by: 100) {
+            let chunk = Array(needed[start..<min(start + 100, needed.count)])
+            guard let response = try? await client.from("user_records")
+                .select("id,kind,payload")
+                .in("id", values: chunk)
+                .execute(),
+                  let page = try? JSONDecoder().decode([StoredRecord].self, from: response.data)
+            else { return }
+            rows += page
+        }
 
         var meals = (try? context.fetch(FetchDescriptor<Meal>())) ?? []
         var mealIDs = Set(meals.map(\.cloudID).filter { !$0.isEmpty })
@@ -165,9 +232,11 @@ extension AccountStore {
                 let meal = await insertMeal(row, context: context, health: health)
                 meals.append(meal)
                 mealIDs.insert(row.id)
+                markSynced(id: row.id, kind: row.kind, payload: Self.payload(for: meal))
             case "workout":
                 guard !sessionIDs.contains(row.id) else { continue }
-                await insertWorkout(row, context: context, health: health)
+                let session = await insertWorkout(row, context: context, health: health)
+                markSynced(id: row.id, kind: row.kind, payload: Self.payload(for: session))
             case "habit":
                 let remoteName = (row.payload.name ?? "").lowercased()
                 if SeedData.retiredHabitNames.contains(remoteName) {
@@ -179,7 +248,8 @@ extension AccountStore {
                     if local.cloudID.isEmpty { local.cloudID = row.id }
                     continue
                 }
-                insertHabit(row, context: context)
+                let habit = insertHabit(row, context: context)
+                markSynced(id: row.id, kind: row.kind, payload: Self.payload(for: habit))
             case "exercise":
                 guard let name = row.payload.name else { continue }
                 if let local = exercises.first(where: { $0.name.lowercased() == name.lowercased() }) {
@@ -190,6 +260,7 @@ extension AccountStore {
                 let exercise = Exercise(name: name, muscleGroup: row.payload.muscleGroup ?? "Other", isCustom: true)
                 exercise.cloudID = row.id
                 context.insert(exercise)
+                markSynced(id: row.id, kind: row.kind, payload: Self.payload(for: exercise))
             case "settings":
                 if !UserDefaults.standard.bool(forKey: CloudKeys.didApplySettings),
                    let raw = row.payload.weightUnit,
@@ -204,6 +275,30 @@ extension AccountStore {
         }
 
         UserDefaults.standard.set(true, forKey: CloudKeys.didApplySettings)
+        try? context.save()
+    }
+
+    private func applyDeletion(id: String, kind: String, context: ModelContext, health: HealthKitManager) async {
+        switch kind {
+        case "meal":
+            let doomed = (try? context.fetch(FetchDescriptor<Meal>(predicate: #Predicate { $0.cloudID == id }))) ?? []
+            let sampleIDs = doomed.flatMap(\.healthKitSampleIDs)
+            doomed.forEach(context.delete)
+            await health.deleteSamples(ids: sampleIDs)
+        case "workout":
+            let doomed = (try? context.fetch(FetchDescriptor<WorkoutSession>(predicate: #Predicate { $0.cloudID == id }))) ?? []
+            let workoutIDs = doomed.compactMap(\.healthKitWorkoutID)
+            doomed.forEach(context.delete)
+            for workoutID in workoutIDs { await health.deleteWorkout(id: workoutID) }
+        case "habit":
+            let doomed = (try? context.fetch(FetchDescriptor<Habit>(predicate: #Predicate { $0.cloudID == id }))) ?? []
+            doomed.forEach(context.delete)
+        case "exercise":
+            let doomed = (try? context.fetch(FetchDescriptor<Exercise>(predicate: #Predicate { $0.cloudID == id }))) ?? []
+            doomed.forEach(context.delete)
+        default:
+            break
+        }
         try? context.save()
     }
 
@@ -293,12 +388,23 @@ extension AccountStore {
         guard let client else { return }
         let response = try? await client
             .from("user_records")
-            .select("id,kind,payload")
+            // Only the fields the fingerprint uses, not the photo.
+            .select("id,name:payload->>name,mealType:payload->>mealType,loggedAt:payload->>loggedAt,calories:payload->calories,proteinG:payload->proteinG")
             .eq("kind", value: "meal")
+            .is("deleted_at", value: nil)
             .execute()
         guard let data = response?.data,
-              let rows = try? JSONDecoder().decode([StoredRecord].self, from: data)
+              let keys = try? JSONDecoder().decode([MealKey].self, from: data)
         else { return }
+        let rows = keys.map { key in
+            StoredRecord(id: key.id, kind: "meal", payload: RecordPayload(
+                name: key.name,
+                mealType: key.mealType,
+                loggedAt: key.loggedAt,
+                calories: key.calories,
+                proteinG: key.proteinG
+            ))
+        }
 
         var keepIDByFingerprint = Dictionary(
             uniqueKeysWithValues: meals.compactMap { meal -> (String, String)? in
@@ -326,7 +432,8 @@ extension AccountStore {
         }
     }
 
-    private func insertWorkout(_ row: StoredRecord, context: ModelContext, health: HealthKitManager) async {
+    @discardableResult
+    private func insertWorkout(_ row: StoredRecord, context: ModelContext, health: HealthKitManager) async -> WorkoutSession {
         let payload = row.payload
         let session = WorkoutSession(
             name: payload.name ?? "Workout",
@@ -357,9 +464,11 @@ extension AccountStore {
                 duration: session.durationMinutes * 60
             )
         }
+        return session
     }
 
-    private func insertHabit(_ row: StoredRecord, context: ModelContext) {
+    @discardableResult
+    private func insertHabit(_ row: StoredRecord, context: ModelContext) -> Habit {
         let payload = row.payload
         let habit = Habit(
             name: payload.name ?? "Habit",
@@ -377,6 +486,7 @@ extension AccountStore {
             context.insert(mark)
             habit.ticks.append(mark)
         }
+        return habit
     }
 
     private func applyHealth(_ row: StoredRecord, health: HealthKitManager) async {
@@ -427,16 +537,27 @@ extension AccountStore {
         PendingHealth.save(remaining)
     }
 
+    /// Skips the upload when the account already has exactly this version.
     @discardableResult
     private func upsert(id: String, kind: String, payload: RecordPayload) async -> Bool {
         guard let client, let userID = currentUserID else { return false }
+        let digest = SyncedVersions.digest(kind: kind, payload: payload)
+        if let digest, SyncedVersions.matches(id: id, digest: digest, user: userID) { return true }
         let row = CloudRow(id: id, user_id: userID.uuidString, kind: kind, payload: payload)
         do {
             try await client.from("user_records").upsert(row, returning: .minimal).execute()
+            if let digest { SyncedVersions.record(id: id, digest: digest, user: userID) }
             return true
         } catch {
             return false
         }
+    }
+
+    /// For records just downloaded, so the next push doesn't send them straight back.
+    private func markSynced(id: String, kind: String, payload: RecordPayload) {
+        guard let userID = currentUserID,
+              let digest = SyncedVersions.digest(kind: kind, payload: payload) else { return }
+        SyncedVersions.record(id: id, digest: digest, user: userID)
     }
 }
 
@@ -444,6 +565,7 @@ private enum CloudKeys {
     static let didApplySettings = "leanlah.didApplyRemoteSettings"
     static let appliedHealth = "leanlah.appliedHealthLogIDs"
     static let pendingHealth = "leanlah.pendingHealthLogs"
+    static let pendingDeletes = "leanlah.pendingDeletes"
 }
 
 private enum CloudID {
@@ -495,11 +617,73 @@ private struct PendingHealth: Codable {
     }
 }
 
+/// A hash of the last version uploaded for each record, kept per account.
+private enum SyncedVersions {
+    private static func key(_ user: UUID) -> String { "leanlah.syncedVersions.\(user.uuidString)" }
+
+    static func digest(kind: String, payload: RecordPayload) -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        guard let data = try? encoder.encode(payload) else { return nil }
+        let hash = SHA256.hash(data: Data(kind.utf8) + data)
+        return hash.map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func matches(id: String, digest: String, user: UUID) -> Bool {
+        (UserDefaults.standard.dictionary(forKey: key(user)) as? [String: String])?[id] == digest
+    }
+
+    static func record(id: String, digest: String, user: UUID) {
+        var versions = (UserDefaults.standard.dictionary(forKey: key(user)) as? [String: String]) ?? [:]
+        versions[id] = digest
+        UserDefaults.standard.set(versions, forKey: key(user))
+    }
+}
+
+private enum PendingDeletes {
+    static func load() -> [String] {
+        UserDefaults.standard.stringArray(forKey: CloudKeys.pendingDeletes) ?? []
+    }
+
+    static func add(_ id: String) {
+        var ids = load()
+        if !ids.contains(id) { ids.append(id) }
+        UserDefaults.standard.set(ids, forKey: CloudKeys.pendingDeletes)
+    }
+
+    static func remove(_ id: String) {
+        UserDefaults.standard.set(load().filter { $0 != id }, forKey: CloudKeys.pendingDeletes)
+    }
+}
+
+/// Clears the payload too, so a deleted meal's photo doesn't stay on the server.
+private struct Tombstone: Encodable {
+    var deleted_at: String
+    var payload = EmptyPayload()
+}
+
+private struct EmptyPayload: Encodable {}
+
 private struct CloudRow: Encodable {
     var id: String
     var user_id: String
     var kind: String
     var payload: RecordPayload
+}
+
+private struct RecordIndex: Decodable {
+    var id: String
+    var kind: String
+    var deleted_at: String?
+}
+
+private struct MealKey: Decodable {
+    var id: String
+    var name: String?
+    var mealType: String?
+    var loggedAt: String?
+    var calories: Double?
+    var proteinG: Double?
 }
 
 private struct StoredRecord: Decodable {

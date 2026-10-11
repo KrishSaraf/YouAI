@@ -173,12 +173,17 @@ struct SessionEditorView: View {
             try? context.save()
         }
 
-        guard session == nil, mirrorToHealth else {
+        // New sessions mirror when the toggle is on. Edited ones revise the copy already in Health.
+        let previousWorkoutID = session?.healthKitWorkoutID
+        let shouldMirror = session == nil ? mirrorToHealth : previousWorkoutID != nil
+        guard shouldMirror else {
             dismiss()
             return
         }
 
         Task {
+            // HealthKit workouts can't be edited, so a revision replaces the old one.
+            if let previousWorkoutID { await health.deleteWorkout(id: previousWorkoutID) }
             target.healthKitWorkoutID = await health.saveStrengthWorkout(
                 name: target.name,
                 start: date,

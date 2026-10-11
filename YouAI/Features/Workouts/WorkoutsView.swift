@@ -98,11 +98,13 @@ struct WorkoutsView: View {
 
     private func deleteSessions(at offsets: IndexSet) {
         let cloudIDs = offsets.map { sessions[$0].cloudID }
+        let workoutIDs = offsets.compactMap { sessions[$0].healthKitWorkoutID }
         for index in offsets {
             context.delete(sessions[index])
         }
         Task {
             for id in cloudIDs { await account.removeRecord(id) }
+            for id in workoutIDs { await health.deleteWorkout(id: id) }
         }
     }
 }
