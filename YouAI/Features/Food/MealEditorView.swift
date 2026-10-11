@@ -4,13 +4,16 @@ import SwiftData
 /// Editing an already-saved meal. Kept separate from `EstimateReviewView`
 /// because this one revises HealthKit samples rather than creating them.
 struct MealEditorView: View {
-    @Bindable var meal: Meal
+    let meal: Meal
 
     @Environment(\.modelContext) private var context
     @Environment(HealthKitManager.self) private var health
     @Environment(AccountStore.self) private var account
     @Environment(\.dismiss) private var dismiss
 
+    @State private var name = ""
+    @State private var mealType: MealType = .snack
+    @State private var date = Date()
     @State private var calories = ""
     @State private var protein = ""
     @State private var carbs = ""
@@ -36,13 +39,13 @@ struct MealEditorView: View {
             }
 
             Section("Meal") {
-                TextField("Name", text: $meal.name)
-                Picker("Type", selection: Binding(get: { meal.type }, set: { meal.type = $0 })) {
+                TextField("Name", text: $name)
+                Picker("Type", selection: $mealType) {
                     ForEach(MealType.allCases) { type in
                         Label(type.label, systemImage: type.symbol).tag(type)
                     }
                 }
-                DatePicker("When", selection: $meal.date, in: ...Date())
+                DatePicker("When", selection: $date, in: ...Date())
             }
 
             Section("Macros") {
@@ -65,12 +68,15 @@ struct MealEditorView: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") { save() }
-                    .disabled(isSaving)
+                    .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .onAppear {
             guard !hasLoaded else { return }
             hasLoaded = true
+            name = meal.name
+            mealType = meal.type
+            date = meal.date
             calories = Fmt.whole(meal.calories)
             protein = Fmt.whole(meal.proteinG)
             carbs = Fmt.whole(meal.carbsG)
@@ -98,6 +104,9 @@ struct MealEditorView: View {
         isSaving = true
 
         let oldSampleIDs = meal.healthKitSampleIDs
+        meal.name = name.trimmingCharacters(in: .whitespaces)
+        meal.type = mealType
+        meal.date = date
         meal.calories = number(calories)
         meal.proteinG = number(protein)
         meal.carbsG = number(carbs)
