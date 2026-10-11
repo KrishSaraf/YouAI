@@ -4,7 +4,7 @@ packages:
     url: https://github.com/supabase/supabase-swift
     from: 2.55.3
 options:
-  bundleIdPrefix: com.ht
+  bundleIdPrefix: com.leanlah
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
@@ -13,8 +13,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
 
@@ -31,7 +31,7 @@ targets:
         buildPhase: resources
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ht.YouAI
+        PRODUCT_BUNDLE_IDENTIFIER: com.leanlah.app
         INFOPLIST_FILE: YouAI/Info.plist
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
