@@ -5,7 +5,7 @@ import Observation
 import Supabase
 
 /// Signed-in account. Apple, Google, and email all become one Supabase user.
-/// The NVIDIA key never lives here.
+/// The AI service's key never lives here.
 @MainActor
 @Observable
 final class AccountStore {
@@ -106,40 +106,61 @@ final class AccountStore {
         apply(nil)
     }
 
+    /// Deletes the account and everything saved to it. A Sign in with Apple account
+    /// first asks Apple for a fresh code, so the server can also disconnect the Apple ID.
+    /// Throws `CancellationError` when the person backs out of the Apple prompt.
     func deleteAccount() async throws {
         guard let client else {
             await signOut()
             throw ServerError.notConfigured
         }
 
-        do {
-            try await client.rpc("delete_own_account").execute()
-        } catch {
-            if let url = APIConfig.endpoint("api/account"),
-               let token = try? await accessTokenForRequest() {
-                var request = URLRequest(url: url)
-                request.httpMethod = "DELETE"
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                let (data, response) = try await URLSession.shared.data(for: request)
-                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode), http.statusCode != 401 {
-                    throw ServerError.parse(data: data, fallback: "Couldn't delete the account. Try again.")
-                }
+        if appleUserID != nil {
+            let reauthorization = AppleReauthorization()
+            let code: String
+            do {
+                code = try await reauthorization.authorizationCode()
+            } catch let error as ASAuthorizationError where error.code == .canceled {
+                throw CancellationError()
+            }
+            try await deleteThroughServer(appleAuthorizationCode: code)
+        } else {
+            do {
+                try await client.rpc("delete_own_account").execute()
+            } catch {
+                try await deleteThroughServer(appleAuthorizationCode: nil)
             }
         }
         await signOut()
+    }
+
+    private func deleteThroughServer(appleAuthorizationCode: String?) async throws {
+        guard let url = APIConfig.endpoint("api/account") else { throw ServerError.notConfigured }
+        let token = try await accessTokenForRequest()
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let appleAuthorizationCode {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["apple_authorization_code": appleAuthorizationCode])
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw ServerError.parse(data: data, fallback: "Couldn't delete the account. Try again.")
+        }
     }
 
     func handle(_ url: URL) {
         client?.auth.handle(url)
     }
 
-    /// Drops the local session when the person has disconnected the app from their Apple ID.
+    /// Signs out when the person has disconnected the app from their Apple ID.
+    /// Only signs out: the account and its logs stay, so signing in again restores them.
     func refreshCredentialState() async {
         guard let appleUserID else { return }
         do {
             let state = try await ASAuthorizationAppleIDProvider().credentialState(forUserID: appleUserID)
-            if state == .revoked || state == .notFound {
-                try? await deleteAccount()
+            if state == .revoked {
                 await signOut()
             }
         } catch {

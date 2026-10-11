@@ -22,7 +22,7 @@ Package.resolved
 # macOS
 .DS_Store
 
-# Secrets — the NVIDIA API key lives in the server environment, never in this repo.
+# Secrets — the OpenRouter and Apple keys live in the server environment, never in this repo.
 *.env
 .env.*
 !.env.example
@@ -30,3 +30,4 @@ Secrets.swift
 node_modules/
 
 .apple-client-secret
+*.p8
