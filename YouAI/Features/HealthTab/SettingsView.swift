@@ -27,8 +27,17 @@ struct SettingsView: View {
                 }
             } footer: {
                 Text(account.isSignedIn
-                    ? "Deleting your account removes the sign-in. Meals and workouts on this iPhone stay here."
+                    ? "Deleting your account removes it and everything saved to it. Meals and workouts on this iPhone stay here."
                     : "Sign in to estimate meals and identify equipment from a photo.")
+            }
+
+            Section {
+                Toggle("AI estimates", isOn: Binding(
+                    get: { settings.allowsAISharing },
+                    set: { settings.allowsAISharing = $0 }
+                ))
+            } footer: {
+                Text("Sends the photos you estimate, and the text of spoken logs, to OpenRouter and Google's Gemini model. Off means nothing is sent, and you'll be asked again next time.")
             }
 
             Section("Units") {
@@ -55,6 +64,17 @@ struct SettingsView: View {
                     Link("Open the Health app", destination: url)
                 }
             }
+
+            Section {
+                if let url = APIConfig.endpoint("privacy") {
+                    Link("Privacy policy", destination: url)
+                }
+                if let url = APIConfig.endpoint("support") {
+                    Link("Help and support", destination: url)
+                }
+            } footer: {
+                Text("Lean Lah! is for general fitness tracking. It isn't a medical device and doesn't give medical advice.")
+            }
         }
         .navigationTitle("Settings")
         .confirmationDialog("Delete account?", isPresented: $confirmingDelete, titleVisibility: .visible) {
@@ -63,7 +83,7 @@ struct SettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes your sign-in. Meals and workouts on this iPhone stay here.")
+            Text("This removes your account and the logs saved to it. Meals and workouts on this iPhone stay here.")
         }
         .alert("Couldn't delete the account", isPresented: .constant(errorMessage != nil)) {
             Button("OK") { errorMessage = nil }
@@ -77,6 +97,8 @@ struct SettingsView: View {
         defer { isDeleting = false }
         do {
             try await account.deleteAccount()
+        } catch is CancellationError {
+            // Backed out of the Apple prompt. Nothing was deleted.
         } catch {
             errorMessage = error.localizedDescription
         }

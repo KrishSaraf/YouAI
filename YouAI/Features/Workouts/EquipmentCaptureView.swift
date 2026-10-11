@@ -6,6 +6,7 @@ import PhotosUI
 /// carry the chosen exercises straight into a new session.
 struct EquipmentCaptureView: View {
     @Environment(AccountStore.self) private var account
+    @Environment(AppSettings.self) private var settings
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
 
@@ -17,6 +18,7 @@ struct EquipmentCaptureView: View {
     @State private var isIdentifying = false
     @State private var errorMessage: String?
     @State private var showingSession = false
+    @State private var pendingAI: (() -> Void)?
 
     var body: some View {
         Form {
@@ -48,7 +50,7 @@ struct EquipmentCaptureView: View {
                 if account.isSignedIn {
                     Section {
                         Button {
-                            identify()
+                            if settings.allowsAISharing { identify() } else { pendingAI = identify }
                         } label: {
                             HStack {
                                 Label("Identify equipment", systemImage: "sparkles")
@@ -119,6 +121,7 @@ struct EquipmentCaptureView: View {
                 }
             }
         }
+        .aiConsentGate($pendingAI)
         .navigationTitle("Gym equipment")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

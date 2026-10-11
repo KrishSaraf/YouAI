@@ -74,7 +74,7 @@ struct EstimateReviewView: View {
                 LabeledContent("From macros", value: "\(Fmt.whole(caloriesFromMacros)) kcal")
                     .foregroundStyle(.secondary)
             } footer: {
-                Text("Protein and carbs are 4 kcal per gram, fat is 9. A big gap from the calories above usually means one of the numbers is off.")
+                Text("Protein and carbs are 4 kcal per gram, fat is 9. A big gap from the calories above usually means one of the numbers is off.\n\nEstimates are a starting point, not medical or dietary advice.")
             }
         }
         .navigationTitle(title)

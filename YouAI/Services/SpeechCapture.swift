@@ -10,8 +10,10 @@ final class SpeechCapture {
     var isListening = false
     var errorMessage: String?
 
-    private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-SG"))
-        ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    /// Singapore English when the phone can recognise it offline, otherwise US English.
+    private let recognizer = ["en-SG", "en-US"]
+        .compactMap { SFSpeechRecognizer(locale: Locale(identifier: $0)) }
+        .first { $0.supportsOnDeviceRecognition }
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -45,6 +47,8 @@ final class SpeechCapture {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        // Keeps the audio on the phone. Only the finished text is sent, after the person taps Log this.
+        request.requiresOnDeviceRecognition = true
         self.request = request
 
         let session = AVAudioSession.sharedInstance()

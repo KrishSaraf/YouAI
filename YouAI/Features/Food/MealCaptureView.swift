@@ -6,6 +6,7 @@ import PhotosUI
 /// photo entirely and type it in.
 struct MealCaptureView: View {
     @Environment(AccountStore.self) private var account
+    @Environment(AppSettings.self) private var settings
     @Environment(\.dismiss) private var dismiss
 
     @State private var showingCamera = false
@@ -15,6 +16,7 @@ struct MealCaptureView: View {
     @State private var isEstimating = false
     @State private var errorMessage: String?
     @State private var showingManualEntry = false
+    @State private var pendingAI: (() -> Void)?
 
     var body: some View {
         Form {
@@ -47,7 +49,7 @@ struct MealCaptureView: View {
                 if account.isSignedIn {
                     Section {
                         Button {
-                            estimateMeal()
+                            if settings.allowsAISharing { estimateMeal() } else { pendingAI = estimateMeal }
                         } label: {
                             HStack {
                                 Label("Estimate from photo", systemImage: "sparkles")
@@ -78,6 +80,7 @@ struct MealCaptureView: View {
                 }
             }
         }
+        .aiConsentGate($pendingAI)
         .navigationTitle("Log meal")
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

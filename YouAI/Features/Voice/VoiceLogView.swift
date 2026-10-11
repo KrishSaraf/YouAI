@@ -17,6 +17,7 @@ struct VoiceLogView: View {
     @State private var isReading = false
     @State private var isSaving = false
     @State private var statusMessage: String?
+    @State private var pendingAI: (() -> Void)?
 
     private var hasTranscript: Bool {
         !speech.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -31,7 +32,11 @@ struct VoiceLogView: View {
                         if hasTranscript, proposal == nil {
                             Section {
                                 Button {
-                                    Task { await interpret() }
+                                    if settings.allowsAISharing {
+                                        Task { await interpret() }
+                                    } else {
+                                        pendingAI = { Task { await interpret() } }
+                                    }
                                 } label: {
                                     HStack {
                                         Text("Log this")
@@ -52,6 +57,7 @@ struct VoiceLogView: View {
                     centeredSpeak
                 }
             }
+            .aiConsentGate($pendingAI)
             .navigationTitle("Speak a log")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
